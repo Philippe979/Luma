@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Luma</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <section id="authGate" class="auth-gate hidden">
+      <form id="authForm" class="auth-card">
+        <p class="eyebrow">Luma Cloud</p>
+        <h2>Access Luma</h2>
+        <input id="accessCodeInput" type="password" placeholder="Access code" autocomplete="current-password" />
+        <button type="submit">Enter</button>
+        <p id="authError" class="muted"></p>
+      </form>
+    </section>
+    <main class="shell">
+      <section class="panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" data-i18n="localButler">Local Butler</p>
+            <h1>Luma</h1>
+          </div>
+          <button id="refreshButton" class="icon-button" title="Refresh" data-i18n="refresh">Refresh</button>
+        </header>
+
+        <nav class="tabs" aria-label="Luma sections">
+          <button class="tab active" data-view="today" data-i18n="today">Today</button>
+          <button class="tab" data-view="setup" data-i18n="memory">Memory</button>
+          <button class="tab" data-view="learning" data-i18n="iteration">Iteration</button>
+          <button class="tab" data-view="usage" data-i18n="usage">Usage</button>
+        </nav>
+
+        <section id="notice" class="notice hidden"></section>
+        <section id="alertBanner" class="alert-banner hidden"></section>
+
+        <section id="todayView" class="view active">
+          <section class="ambient-bar">
+            <span class="live-dot"></span>
+            <strong id="ambientStatus">Status unknown</strong>
+            <span id="ambientTime">--:--</span>
+            <span id="ambientLocation">Location unknown</span>
+            <span id="ambientWeather">Weather unknown</span>
+            <span id="ambientBrain">Brain standby</span>
+          </section>
+
+          <section class="workspace-grid">
+            <aside class="side-rail">
+              <div class="section-title">
+                <h3 data-i18n="todayBrief">Today</h3>
+                <span id="reminderCount" class="pill">0</span>
+              </div>
+              <div id="reminderList" class="reminder-list"></div>
+
+              <div class="section-title side-title">
+                <h3 data-i18n="projects">Projects</h3>
+                <span id="projectCount" class="pill">0</span>
+              </div>
+              <div id="projectList" class="project-list"></div>
+
+              <div class="section-title side-title">
+                <h3 data-i18n="usage">Usage</h3>
+                <span id="todayTokenPill" class="pill">0</span>
+              </div>
+              <p id="usageMiniLine" class="muted">No token usage yet.</p>
+            </aside>
+
+            <section class="chat-card">
+              <div class="greeting-block">
+                <p id="workingMemoryLine" class="muted">Luma is ready.</p>
+                <h2 id="chatGreeting">Good morning.</h2>
+                <p class="luma-presence">Hi, I am Luma.</p>
+              </div>
+
+              <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+
+              <section id="proposalPanel" class="proposal-card hidden">
+                <div class="section-title">
+                  <h3 data-i18n="proposedActions">Proposed Actions</h3>
+                  <span class="pill" data-i18n="needsConfirm">confirm</span>
+                </div>
+                <p id="proposalSummary" class="muted"></p>
+                <div id="proposalActions" class="proposal-actions"></div>
+                <div class="button-row compact-row">
+                  <button id="confirmProposalButton" class="primary-button" data-i18n="confirmActions">Confirm</button>
+                  <button id="cancelProposalButton" class="secondary-button" data-i18n="cancel">Cancel</button>
+                </div>
+              </section>
+
+              <form id="chatForm" class="chat-form">
+                <textarea id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="Tell Luma what changed, what to remember, or what to do next."></textarea>
+                <button type="submit" aria-label="Send" data-i18n="send">Send</button>
+              </form>
+
+              <div class="section-title action-title">
+                <h3 data-i18n="suggestedActions">Suggested Actions</h3>
+                <span class="pill">V2</span>
+              </div>
+              <div id="suggestedActionList" class="action-card-grid"></div>
+            </section>
+          </section>
+
+          <section class="block quick-setup">
+            <div class="button-row">
+              <button id="openStatusButton" class="secondary-button" data-i18n="updateStatus">Update Status</button>
+              <button id="openReminderButton" class="secondary-button" data-i18n="addReminder">Add Reminder</button>
+              <button id="notifyButton" class="secondary-button" data-i18n="enableAlerts">Enable Alerts</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="setupView" class="view">
+          <section class="memory-hero">
+            <p class="eyebrow" data-i18n="memorySystem">Memory System</p>
+            <h2 data-i18n="memorySystemTitle">Shape what Luma should remember.</h2>
+            <p class="muted" data-i18n="memorySystemNote">Projects, behavior modes, context, and preferences become Luma's long-term memory inputs.</p>
+          </section>
+
+          <section id="projectPanel" class="block">
+            <div class="section-title">
+              <h3 data-i18n="projects">Projects</h3>
+              <span class="pill" data-i18n="manual">manual</span>
+            </div>
+            <form id="projectForm" class="stack-form">
+              <label>
+                <span data-i18n="projectName">Project name</span>
+                <input id="projectNameInput" data-i18n-placeholder="projectNamePlaceholder" placeholder="e.g. 5207 Research Project" autocomplete="off" />
+              </label>
+              <div class="two-col">
+                <label>
+                  <span data-i18n="type">Type</span>
+                  <select id="projectTypeInput">
+                    <option value="course">course</option>
+                    <option value="research">research</option>
+                    <option value="life">life</option>
+                    <option value="custom">custom</option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="nextStep">Next step</span>
+                  <input id="projectNextInput" data-i18n-placeholder="nextStepPlaceholder" placeholder="e.g. methodology" autocomplete="off" />
+                </label>
+              </div>
+              <label>
+                <span data-i18n="goal">Goal</span>
+                <input id="projectGoalInput" data-i18n-placeholder="goalPlaceholder" placeholder="What should Luma remember this project for?" autocomplete="off" />
+              </label>
+              <button type="submit" data-i18n="saveProject">Save Project</button>
+            </form>
+          </section>
+
+          <section id="statusPanel" class="block">
+            <div class="section-title">
+              <h3 data-i18n="updateStatus">Update Status</h3>
+              <span class="pill" data-i18n="manual">manual</span>
+            </div>
+            <p class="muted setup-label" data-i18n="suggested">Suggested</p>
+            <div id="suggestionActions" class="button-row"></div>
+            <p class="muted setup-label" data-i18n="allStatuses">All statuses</p>
+            <div id="statusButtons" class="status-grid"></div>
+            <form id="customStatusForm" class="inline-form">
+              <input id="customStatusInput" data-i18n-placeholder="statusPlaceholder" placeholder="Add status, e.g. Poker" autocomplete="off" />
+              <button type="submit" data-i18n="switch">Switch</button>
+            </form>
+          </section>
+
+          <section id="reminderPanel" class="block">
+            <div class="section-title">
+              <h3 data-i18n="addReminder">Add Reminder</h3>
+              <span id="reminderBindHint" class="pill">current status</span>
+            </div>
+            <form id="reminderForm" class="stack-form">
+              <label>
+                <span data-i18n="reminder">Reminder</span>
+                <input id="reminderInput" data-i18n-placeholder="reminderPlaceholder" placeholder="e.g. Finish 5207" autocomplete="off" />
+              </label>
+              <div class="two-col">
+                <label>
+                  <span data-i18n="type">Type</span>
+                  <select id="reminderKindInput">
+                    <option value="status" data-i18n="statusReminder">Status reminder</option>
+                    <option value="deadline" data-i18n="deadlineReminder">Deadline reminder</option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="bindTo">Bind to</span>
+                  <select id="reminderStatusInput"></select>
+                </label>
+              </div>
+              <div id="statusReminderFields" class="two-col">
+                <label>
+                  <span data-i18n="frequency">Frequency</span>
+                  <select id="frequencyInput">
+                    <option value="every_status_enter" data-i18n="everyTime">Every time</option>
+                    <option value="once" data-i18n="once">Once</option>
+                    <option value="for_next_days" data-i18n="next3Days">Next 3 days</option>
+                    <option value="daily_until_done" data-i18n="dailyUntilDone">Daily until done</option>
+                    <option value="manual_only" data-i18n="keepInList">Keep in list</option>
+                  </select>
+                </label>
+                <span></span>
+              </div>
+              <div id="deadlineFields" class="deadline-fields hidden">
+                <label>
+                  <span data-i18n="due">Due</span>
+                  <input id="dueAtInput" type="datetime-local" />
+                </label>
+                <div>
+                  <p class="field-label" data-i18n="alertBefore">Alert before</p>
+                  <div class="check-row">
+                    <label><input type="checkbox" value="30" checked /> 30m</label>
+                    <label><input type="checkbox" value="20" checked /> 20m</label>
+                    <label><input type="checkbox" value="10" checked /> 10m</label>
+                  </div>
+                </div>
+              </div>
+              <button type="submit" data-i18n="saveReminder">Save Reminder</button>
+            </form>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="manageReminders">Manage Reminders</h3>
+              <span id="allReminderCount" class="pill">0</span>
+            </div>
+            <div id="allReminderList" class="reminder-list"></div>
+          </section>
+
+          <section id="alertsPanel" class="block">
+            <div class="section-title">
+              <h3 data-i18n="alerts">Alerts</h3>
+              <span class="pill" data-i18n="browser">browser</span>
+            </div>
+            <p class="muted" data-i18n="alertsHelp">Deadline reminders can show in-page alerts and browser notifications while Luma is open.</p>
+            <button id="enableAlertsButton" class="text-button wide-button" data-i18n="enableBrowserAlerts">Enable Browser Alerts</button>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="preferences">Preferences</h3>
+              <span class="pill">UI</span>
+            </div>
+            <form id="settingsForm" class="context-grid">
+              <label>
+                <span data-i18n="language">Language</span>
+                <select id="languageInput">
+                  <option value="en">English</option>
+                  <option value="zh">中文</option>
+                </select>
+              </label>
+              <button type="submit" data-i18n="savePreferences">Save Preferences</button>
+            </form>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="languageLayer">Language Layer</h3>
+              <span id="llmStatus" class="pill">local</span>
+            </div>
+            <form id="llmForm" class="stack-form">
+              <label>
+                <span data-i18n="deepseekApiKey">DeepSeek API Key</span>
+                <input id="deepseekKeyInput" type="password" data-i18n-placeholder="deepseekKeyPlaceholder" placeholder="sk-..." autocomplete="off" />
+              </label>
+              <div class="two-col">
+                <label>
+                  <span data-i18n="model">Model</span>
+                  <select id="deepseekModelInput">
+                    <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                    <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="thinking">Thinking</span>
+                  <select id="deepseekThinkingInput">
+                    <option value="disabled" data-i18n="disabled">disabled</option>
+                    <option value="enabled" data-i18n="enabled">enabled</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" data-i18n="saveLanguageLayer">Save Language Layer</button>
+            </form>
+          </section>
+
+          <section class="block compact">
+            <div class="section-title">
+              <h3 data-i18n="context">Context</h3>
+              <button id="locateButton" class="text-button" data-i18n="useLocation">Use Location</button>
+            </div>
+            <form id="contextForm" class="context-grid">
+              <label>
+                <span data-i18n="location">Location</span>
+                <input id="locationInput" data-i18n-placeholder="locationPlaceholder" placeholder="home / campus / outside" />
+              </label>
+              <label>
+                <span data-i18n="weather">Weather</span>
+                <input id="weatherInput" data-i18n-placeholder="weatherPlaceholder" placeholder="sunny / rain / unknown" />
+              </label>
+              <button type="submit" data-i18n="saveContext">Save Context</button>
+            </form>
+            <form id="placeForm" class="inline-form">
+              <input id="placeInput" data-i18n-placeholder="placePlaceholder" placeholder="Save current place as, e.g. home" autocomplete="off" />
+              <button type="submit" data-i18n="savePlace">Save Place</button>
+            </form>
+            <p id="coordinateLine" class="muted context-note">Location not captured yet.</p>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="localAccess">Local Access</h3>
+              <span class="pill">LAN</span>
+            </div>
+            <p id="lanLine" class="muted">Loading LAN address...</p>
+            <button id="codexButton" class="text-button wide-button" data-i18n="copyCodex">Copy Codex Context</button>
+          </section>
+        </section>
+
+        <section id="learningView" class="view">
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="iterationReadiness">Iteration Readiness</h3>
+              <span id="learningStatus" class="pill">cold start</span>
+            </div>
+            <p class="muted iteration-note" data-i18n="iterationNote">Luma needs high-quality structured memory before the next brain iteration.</p>
+            <div id="learningCards" class="metric-grid"></div>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="memoryQuality">Memory Quality</h3>
+              <span id="statusSampleTotal" class="pill">0</span>
+            </div>
+            <div id="statusChart" class="chart-list"></div>
+          </section>
+        </section>
+
+        <section id="usageView" class="view">
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="tokenUsage">Token Usage</h3>
+              <span id="usageCostPill" class="pill">$0.000000</span>
+            </div>
+            <div class="usage-overview">
+              <div>
+                <span data-i18n="todayTokens">Today tokens</span>
+                <strong id="todayTokens">0</strong>
+              </div>
+              <div>
+                <span>Input</span>
+                <strong id="todayInputTokens">0</strong>
+              </div>
+              <div>
+                <span>Output</span>
+                <strong id="todayOutputTokens">0</strong>
+              </div>
+              <div>
+                <span data-i18n="savedTokens">Saved</span>
+                <strong id="todaySavedTokens">0</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="sevenDayTrend">7 Day Trend</h3>
+              <span class="pill">tokens</span>
+            </div>
+            <div id="usageChart" class="usage-chart"></div>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="recentCalls">Recent Calls</h3>
+              <span id="usageCallCount" class="pill">0</span>
+            </div>
+            <div id="usageList" class="usage-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

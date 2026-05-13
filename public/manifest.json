@@ -1,0 +1,15 @@
+{
+  "name": "Luma",
+  "short_name": "Luma",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef1f4",
+  "theme_color": "#226d68",
+  "icons": [
+    {
+      "src": "/luma-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
