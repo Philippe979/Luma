@@ -50,9 +50,18 @@ export async function proposeFromChat(db, body) {
 export function trainBrainInBackground({ userText, inputPacket, expertProposal }) {
   setTimeout(async () => {
     try {
-      const db = await readDb();
-      await trainWithBrain(db, { userText, inputPacket, expertProposal });
-      await saveDb(db);
+      const snapshot = await readDb();
+      const { sample, brainEvent } = await trainWithBrain(snapshot, { userText, inputPacket, expertProposal });
+      const latest = await readDb();
+      latest.trainingSamples = latest.trainingSamples || [];
+      latest.brainEvents = latest.brainEvents || [];
+      if (brainEvent && !latest.brainEvents.some((event) => event.id === brainEvent.id)) {
+        latest.brainEvents.push(brainEvent);
+      }
+      if (sample && !latest.trainingSamples.some((item) => item.id === sample.id)) {
+        latest.trainingSamples.push(sample);
+      }
+      await saveDb(latest);
     } catch (error) {
       console.error(`Brain background training failed: ${error.message}`);
     }
