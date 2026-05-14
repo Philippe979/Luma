@@ -49,6 +49,15 @@ export function parseChatInput(text, db) {
   }
 
   if (!actions.length && input) {
+    if (isSmallTalk(input)) {
+      return {
+        input,
+        confidence: 0.65,
+        proposedActions: [],
+        response: smallTalkResponse(input)
+      };
+    }
+
     actions.push({
       tool: "save_memory_note",
       args: { note: input },
@@ -186,4 +195,14 @@ function buildResponse(actions) {
   if (!actions.length) return "I can save this as memory.";
   const labels = actions.map((action) => action.tool.replaceAll("_", " ")).join(", ");
   return `I found ${actions.length} action${actions.length > 1 ? "s" : ""}: ${labels}.`;
+}
+
+function isSmallTalk(input) {
+  return /^(hi|hello|hey|yo|good morning|good afternoon|good evening|welcome|hi[,! ]|hello[,! ]|嗨|你好|早上好|下午好|晚上好|欢迎)/i.test(input.trim());
+}
+
+function smallTalkResponse(input) {
+  if (/你好|嗨|早上好|下午好|晚上好|欢迎/.test(input)) return "你好，我在。云端和本地 brain 已经连上了，我们可以继续调 Luma。";
+  if (/good morning/i.test(input)) return "Good morning. I am here, and Luma's cloud app is connected to the local brain.";
+  return "Hi, I am here. Luma is connected and ready.";
 }

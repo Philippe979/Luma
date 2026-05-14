@@ -6,7 +6,7 @@ import { updateContext, savePlace } from "./context.js";
 import { activeStatus, predictStatus, statusReceipt, updateStatus } from "./status.js";
 import { activeReminders, createReminder, deleteReminder, dueAlerts, markAlertFired, updateReminder } from "./reminders.js";
 import { learningProgress } from "./learning.js";
-import { executeProposal, proposeFromChat } from "./agent.js";
+import { executeProposal, proposeFromChat, trainBrainInBackground } from "./agent.js";
 import { recentMemory, suggestedActions, upsertProject } from "./memory.js";
 import { publicLlmState, readSecrets, saveSecrets } from "./secrets.js";
 import { usageSummary } from "./usage.js";
@@ -94,6 +94,11 @@ export function createRouter() {
     if (req.method === "POST" && url.pathname === "/api/chat/propose") {
       const proposal = await proposeFromChat(db, await readJson(req));
       await saveDb(db);
+      trainBrainInBackground({
+        userText: proposal.text,
+        inputPacket: proposal.inputPacket,
+        expertProposal: proposal
+      });
       return sendJson(res, 200, { ok: true, proposal, state: statePayload(db, secrets) });
     }
 

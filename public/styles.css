@@ -378,7 +378,8 @@ h3 {
 }
 
 .action-card-grid,
-.memory-list {
+.memory-list,
+.archive-list {
   display: grid;
   gap: 10px;
 }
@@ -412,6 +413,7 @@ h3 {
 }
 
 .memory-item,
+.archive-item,
 .project-item,
 .usage-row {
   display: grid;
@@ -419,6 +421,32 @@ h3 {
   padding: 8px 0;
   border-bottom: 1px solid rgba(74, 86, 104, 0.11);
   background: transparent;
+}
+
+.archive-item {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.archive-item strong {
+  font-size: 13px;
+}
+
+.archive-item small {
+  color: var(--muted);
+}
+
+.archive-item p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .project-list {

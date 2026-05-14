@@ -6,6 +6,7 @@ import { executeTool } from "./tools.js";
 import { addUsageEvent } from "./usage.js";
 import { trainWithBrain } from "./brain_service.js";
 import { buildInputPacket } from "./input_prompt.js";
+import { readDb, saveDb } from "./storage.js";
 
 export async function proposeFromChat(db, body) {
   const text = String(body.text || "").trim();
@@ -43,9 +44,19 @@ export async function proposeFromChat(db, body) {
     inputTokens: estimateTokens(text),
     outputTokens: estimateTokens(proposal.response)
   });
-  await trainWithBrain(db, { userText: text, inputPacket, expertProposal: proposal });
-
   return proposal;
+}
+
+export function trainBrainInBackground({ userText, inputPacket, expertProposal }) {
+  setTimeout(async () => {
+    try {
+      const db = await readDb();
+      await trainWithBrain(db, { userText, inputPacket, expertProposal });
+      await saveDb(db);
+    } catch (error) {
+      console.error(`Brain background training failed: ${error.message}`);
+    }
+  }, 0);
 }
 
 export function executeProposal(db, body) {
@@ -77,7 +88,7 @@ async function buildNormalizedInputPacket(db, text) {
 async function parseWithFallback(text, db, inputPacket) {
   try {
     const llm = await parseWithDeepSeek(text, db, inputPacket);
-    if (llm?.proposedActions?.length) return { ...llm, parser: "deepseek" };
+    if (llm?.response || llm?.proposedActions?.length) return { ...llm, parser: "deepseek" };
   } catch (error) {
     addMemoryEvent(db, {
       type: "llm_error",

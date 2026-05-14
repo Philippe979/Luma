@@ -1,6 +1,7 @@
 let state = null;
 let lastReceiptNote = "";
 let pendingProposal = null;
+let currentSessionStartedAt = new Date().toISOString();
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -23,6 +24,7 @@ const i18n = {
     chatGreeting: "How can I help you today?",
     chatPlaceholder: "Tell Luma what changed, what to remember, or what to do next.",
     confirmActions: "Confirm",
+    conversationArchive: "Archive",
     codexCopied: "Codex context copied.",
     collecting: "collecting",
     complete: "Complete",
@@ -296,6 +298,7 @@ function render() {
   renderReminders();
   renderAllReminders();
   renderChatWorkspace();
+  renderConversationArchive();
   renderProposal();
   renderMemoryWorkspace();
   renderUsage();
@@ -381,7 +384,9 @@ function renderReminders() {
 function renderChatWorkspace() {
   $("chatMessages").innerHTML = "";
   $("chatGreeting").textContent = greetingText();
-  const messages = (state.conversations || []).slice(-8);
+  const messages = (state.conversations || [])
+    .filter((message) => !message.timestamp || message.timestamp >= currentSessionStartedAt)
+    .slice(-8);
   if (!messages.length) {
     const starter = document.createElement("div");
     starter.className = "message assistant";
@@ -399,6 +404,42 @@ function renderChatWorkspace() {
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
 }
 
+function renderConversationArchive() {
+  const archived = (state.conversations || [])
+    .filter((message) => message.timestamp && message.timestamp < currentSessionStartedAt)
+    .slice(-12)
+    .reverse();
+  $("conversationArchiveCount").textContent = archived.length;
+  $("conversationArchiveList").innerHTML = "";
+
+  if (!archived.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = state.settings?.language === "zh" ? "暂无归档聊天。" : "No archived chat yet.";
+    $("conversationArchiveList").append(empty);
+    return;
+  }
+
+  for (const message of archived) {
+    const item = document.createElement("div");
+    item.className = "archive-item";
+    const role = document.createElement("strong");
+    role.textContent = message.role === "user" ? "You" : "Luma";
+    const time = document.createElement("small");
+    time.textContent = formatShortTime(message.timestamp);
+    const text = document.createElement("p");
+    text.textContent = message.content;
+    item.append(role, time, text);
+    $("conversationArchiveList").append(item);
+  }
+}
+
+function formatShortTime(timestamp) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function greetingText() {
   const hour = new Date().getHours();
   if (state.settings?.language === "zh") {
@@ -412,8 +453,9 @@ function greetingText() {
 }
 
 function renderProposal() {
-  $("proposalPanel").classList.toggle("hidden", !pendingProposal);
-  if (!pendingProposal) return;
+  const hasActions = Boolean(pendingProposal?.proposedActions?.length);
+  $("proposalPanel").classList.toggle("hidden", !hasActions);
+  if (!hasActions) return;
 
   $("proposalSummary").textContent = pendingProposal.response || "";
   $("proposalActions").innerHTML = "";
@@ -762,7 +804,11 @@ function weatherFromCode(code) {
   return "unknown";
 }
 
-$("refreshButton").addEventListener("click", () => load());
+$("refreshButton").addEventListener("click", async () => {
+  currentSessionStartedAt = new Date().toISOString();
+  pendingProposal = null;
+  await load();
+});
 $("openStatusButton").addEventListener("click", () => jumpToSetup("statusPanel"));
 $("openReminderButton").addEventListener("click", () => jumpToSetup("reminderPanel"));
 $("reminderKindInput").addEventListener("change", updateReminderFieldVisibility);
@@ -775,7 +821,7 @@ $("chatForm").addEventListener("submit", async (event) => {
   if (!text) return;
   $("chatInput").value = "";
   const result = await api("/api/chat/propose", { method: "POST", body: JSON.stringify({ text }) });
-  pendingProposal = result.proposal;
+  pendingProposal = result.proposal?.proposedActions?.length ? result.proposal : null;
   await load(result.state);
 });
 
