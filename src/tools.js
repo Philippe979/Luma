@@ -1,10 +1,15 @@
 import { createReminder } from "./reminders.js";
 import { updateContext } from "./context.js";
 import { updateStatus } from "./status.js";
-import { addActionEvent, addMemoryEvent, updateWorkingMemory, upsertProject } from "./memory.js";
+import { addActionEvent, addMemoryEvent, upsertProject } from "./memory.js";
 
-export function executeTool(db, action, source = "chat") {
+export function executeTool(db, action, source = "chat", context = {}) {
   const { tool, args = {} } = action;
+  const memoryContext = {
+    sessionId: context.sessionId || null,
+    projectId: context.projectId || null,
+    title: context.title || action.reason || action.tool
+  };
   let result;
 
   if (tool === "update_status") {
@@ -18,7 +23,7 @@ export function executeTool(db, action, source = "chat") {
         args.weather ? `weather=${args.weather}` : ""
       ].filter(Boolean).join(", ") || "Context updated",
       source,
-      metadata: { contextPatch: args }
+      metadata: { ...memoryContext, contextPatch: args }
     });
   } else if (tool === "create_reminder") {
     result = createReminder(db, { kind: "status", ...args, statusIds: args.statusIds?.length ? args.statusIds : db.activeStatusId ? [db.activeStatusId] : [] });
@@ -35,30 +40,26 @@ export function executeTool(db, action, source = "chat") {
       type: "project_progress",
       summary: `${args.project}: ${args.progress}`,
       source,
-      metadata: { project: args.project, progress: args.progress, nextStep: args.nextStep || null, state: args.state || "active" }
+      metadata: { ...memoryContext, project: args.project, progress: args.progress, nextStep: args.nextStep || null, state: args.state || "active" }
     });
   } else if (tool === "create_continuation") {
-    const working = updateWorkingMemory(db, {
-      activeProject: args.project,
-      nextStep: args.text || `Continue ${args.project}`
-    });
     result = upsertProject(db, {
       project: args.project,
       nextStep: args.text || `Continue ${args.project}`,
       state: "paused"
-    }) || working;
+    });
     addMemoryEvent(db, {
       type: "continuation",
       summary: `${args.project}: ${args.text || "continue later"}`,
       source,
-      metadata: { project: args.project, when: args.when || "next" }
+      metadata: { ...memoryContext, project: args.project, when: args.when || "next" }
     });
   } else if (tool === "save_memory_note") {
     result = addMemoryEvent(db, {
       type: "note",
       summary: args.note,
       source,
-      metadata: { note: args.note }
+      metadata: { ...memoryContext, note: args.note }
     });
   } else if (tool === "suggest_next_action" || tool === "review_memory") {
     result = { ok: true, message: "Suggestion acknowledged." };

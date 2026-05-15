@@ -7,6 +7,8 @@ export function activeStatus(db) {
 }
 
 export function updateStatus(db, body) {
+  db.statuses = db.statuses || [];
+  db.history = db.history || [];
   let status = db.statuses.find((item) => item.id === body.statusId);
   let created = false;
 

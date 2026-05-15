@@ -7,7 +7,7 @@ import { activeStatus, predictStatus, statusReceipt, updateStatus } from "./stat
 import { activeReminders, createReminder, deleteReminder, dueAlerts, markAlertFired, updateReminder } from "./reminders.js";
 import { learningProgress } from "./learning.js";
 import { executeProposal, proposeFromChat, trainBrainInBackground } from "./agent.js";
-import { recentMemory, suggestedActions, upsertProject } from "./memory.js";
+import { clearWorkingMemory, emptyWorkingMemory, projectWorkingMemory, recentMemory, suggestedActions, upsertProject } from "./memory.js";
 import { publicLlmState, readSecrets, saveSecrets } from "./secrets.js";
 import { usageSummary } from "./usage.js";
 import { brainState } from "./brain_service.js";
@@ -101,6 +101,7 @@ export function createRouter() {
         routeLabel: body.routeLabel || "general",
         projectId: body.projectId || null
       });
+      if (!session.projectId) clearWorkingMemory(db);
       await saveDb(db);
       return sendJson(res, 200, { ok: true, session, state: statePayload(db, secrets) });
     }
@@ -108,6 +109,8 @@ export function createRouter() {
     if (req.method === "POST" && url.pathname === "/api/sessions/fresh") {
       const body = await readJson(req);
       const session = activateFreshSession(db, body.routeLabel || "general");
+      session.projectId = null;
+      clearWorkingMemory(db);
       await saveDb(db);
       return sendJson(res, 200, { ok: true, session, state: statePayload(db, secrets) });
     }
@@ -117,6 +120,20 @@ export function createRouter() {
       const session = activateSession(db, body.sessionId);
       await saveDb(db);
       return sendJson(res, 200, { ok: true, session, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/projects/active") {
+      const body = await readJson(req);
+      const project = (db.projects || []).find((item) => item.id === body.projectId);
+      if (!project) return sendJson(res, 404, { error: "Project not found." });
+      const session = createSession(db, {
+        title: project.name,
+        routeLabel: body.routeLabel || "academic",
+        projectId: project.id
+      });
+      db.workingMemory = projectWorkingMemory(project);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, project, session, state: statePayload(db, secrets) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/chat/propose") {
@@ -168,6 +185,7 @@ export function createRouter() {
 
 function statePayload(db, secrets = null) {
   const activeSession = ensureActiveSession(db);
+  const memoryScope = sessionMemoryScope(db, activeSession);
   return {
     ...predictStatus(db),
     activeStatusId: db.activeStatusId,
@@ -191,9 +209,9 @@ function statePayload(db, secrets = null) {
     brainEvents: db.brainEvents || [],
     trainingSamples: db.trainingSamples || [],
     usage: usageSummary(db),
-    workingMemory: db.workingMemory || {},
-    recentMemory: recentMemory(db),
-    suggestedActions: suggestedActions(db),
+    workingMemory: memoryScope.workingMemory,
+    recentMemory: memoryScope.recentMemory,
+    suggestedActions: memoryScope.suggestedActions,
     actionCards: db.actionCards || [],
     modes: db.modes || [],
     context: db.context,
@@ -205,5 +223,23 @@ function statePayload(db, secrets = null) {
     brain: brainState(),
     optimizer: optimizerState(),
     lanUrls: clientIpList().map((ip) => `http://${ip}:${config.port}`)
+  };
+}
+
+function sessionMemoryScope(db, session) {
+  const project = session?.projectId ? (db.projects || []).find((item) => item.id === session.projectId) : null;
+  if (!project) {
+    return {
+      workingMemory: emptyWorkingMemory(),
+      recentMemory: recentMemory(db, 6, { sessionId: session?.id }),
+      suggestedActions: []
+    };
+  }
+
+  const workingMemory = projectWorkingMemory(project);
+  return {
+    workingMemory,
+    recentMemory: recentMemory(db, 8, { projectId: project.id, projectName: project.name }),
+    suggestedActions: suggestedActions(db, { workingMemory })
   };
 }

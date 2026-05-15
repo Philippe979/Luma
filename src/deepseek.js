@@ -1,5 +1,5 @@
 import { readSecrets } from "./secrets.js";
-import { recentMemory } from "./memory.js";
+import { emptyWorkingMemory, projectWorkingMemory, recentMemory } from "./memory.js";
 import { inputNormalizationSystemPrompt } from "./input_prompt.js";
 
 const allowedTools = [
@@ -26,7 +26,7 @@ export async function parseWithDeepSeek(text, db, inputPacket = null) {
     body: JSON.stringify({
       model: secrets.deepseekModel || "deepseek-v4-flash",
       messages: [
-        { role: "system", content: systemPrompt(db) },
+        { role: "system", content: systemPrompt(db, inputPacket) },
         { role: "user", content: JSON.stringify({ inputPacket, text }, null, 2) }
       ],
       response_format: { type: "json_object" },
@@ -55,13 +55,14 @@ export async function parseWithDeepSeek(text, db, inputPacket = null) {
   };
 }
 
-function systemPrompt(db) {
+function systemPrompt(db, inputPacket = null) {
+  const scoped = scopedContext(db, inputPacket);
   const context = {
     activeStatus: db.activeStatusId,
     context: db.context,
-    workingMemory: db.workingMemory,
-    projects: (db.projects || []).slice(-8),
-    recentMemory: recentMemory(db, 8),
+    workingMemory: scoped.workingMemory,
+    projects: scoped.projects,
+    recentMemory: scoped.recentMemory,
     statuses: (db.statuses || []).map(({ id, label }) => ({ id, label }))
   };
 
@@ -76,6 +77,7 @@ Required JSON shape:
   "input": string,
   "confidence": number,
   "response": string,
+  "memoryTitle": string,
   "proposedActions": []
 }
 
@@ -90,7 +92,10 @@ Allowed tools:
 - review_memory: args { "project": string|null }
 
 Rules:
+- Treat memory as opt-in context. If Current local context has no active project and no recent session memory, do not mention or infer old memories.
+- Always generate "memoryTitle" as a short archive title for this turn, 4-9 words, no markdown.
 - Prefer project actions for coursework, research, documents, coding, and named work like "5207".
+- Do not continue an old project unless the user explicitly asks to continue/review it or the current session is already linked to that project.
 - If the user says they finished, completed, paused, or will continue a project, preserve it as one project thread.
 - If the user asks for a future alert, use create_deadline with a concrete dueAt.
 - If confidence is low, ask a short clarification in response and do not propose a memory action unless the user explicitly asked to save it.
@@ -114,7 +119,7 @@ export async function normalizeWithDeepSeek(text, db, inputPacket) {
       model: secrets.deepseekModel || "deepseek-v4-flash",
       messages: [
         { role: "system", content: inputNormalizationSystemPrompt() },
-        { role: "user", content: JSON.stringify({ inputPacket, recentMemory: recentMemory(db, 5), text }, null, 2) }
+        { role: "user", content: JSON.stringify({ inputPacket, recentMemory: scopedContext(db, inputPacket).recentMemory.slice(0, 5), text }, null, 2) }
       ],
       response_format: { type: "json_object" },
       thinking: { type: secrets.deepseekThinking || "disabled" },
@@ -138,6 +143,24 @@ export async function normalizeWithDeepSeek(text, db, inputPacket) {
   };
 }
 
+function scopedContext(db, inputPacket = null) {
+  const session = inputPacket?.session || {};
+  const project = session.projectId ? (db.projects || []).find((item) => item.id === session.projectId) : null;
+  if (project) {
+    return {
+      workingMemory: projectWorkingMemory(project),
+      projects: [project],
+      recentMemory: recentMemory(db, 8, { projectId: project.id, projectName: project.name })
+    };
+  }
+
+  return {
+    workingMemory: emptyWorkingMemory(),
+    projects: [],
+    recentMemory: recentMemory(db, 8, { sessionId: session.id })
+  };
+}
+
 function normalizeLlmParse(parsed) {
   const actions = Array.isArray(parsed.proposedActions) ? parsed.proposedActions : [];
   const proposedActions = actions
@@ -152,6 +175,7 @@ function normalizeLlmParse(parsed) {
     input: String(parsed.input || ""),
     confidence: Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : 0.78,
     proposedActions,
+    memoryTitle: cleanTitle(parsed.memoryTitle || parsed.title || parsed.response || parsed.input),
     response: String(parsed.response || buildResponse(proposedActions))
   };
 }
@@ -160,4 +184,12 @@ function buildResponse(actions) {
   if (!actions.length) return "I can save this as memory.";
   const labels = actions.map((action) => action.tool.replaceAll("_", " ")).join(", ");
   return `I found ${actions.length} action${actions.length > 1 ? "s" : ""}: ${labels}.`;
+}
+
+function cleanTitle(value) {
+  return String(value || "Luma conversation")
+    .replace(/\s+/g, " ")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim()
+    .slice(0, 80) || "Luma conversation";
 }

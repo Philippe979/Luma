@@ -481,11 +481,7 @@ function renderProcessPanel() {
 
 function renderConversationArchive() {
   const route = activeRouteLabel || state.activeSession?.routeLabel || "general";
-  const archived = (state.conversations || [])
-    .filter((message) => message.conversationId !== state.activeSessionId)
-    .filter((message) => (message.routeLabel || "general") === route)
-    .slice(-12)
-    .reverse();
+  const archived = archiveSessions(route);
   $("conversationArchiveCount").textContent = archived.length;
   $("conversationArchiveList").innerHTML = "";
 
@@ -497,18 +493,61 @@ function renderConversationArchive() {
     return;
   }
 
-  for (const message of archived) {
+  for (const session of archived) {
     const item = document.createElement("div");
     item.className = "archive-item";
-    const role = document.createElement("strong");
-    role.textContent = message.role === "user" ? "You" : "Luma";
+    item.tabIndex = 0;
+    item.setAttribute("role", "button");
+    const title = document.createElement("strong");
+    title.textContent = session.title;
     const time = document.createElement("small");
-    time.textContent = formatShortTime(message.timestamp);
-    const text = document.createElement("p");
-    text.textContent = message.content;
-    item.append(role, time, text);
+    time.textContent = [formatShortTime(session.lastMessageAt || session.updatedAt), `${session.messageCount} messages`].filter(Boolean).join(" · ");
+    item.append(title, time);
+    item.addEventListener("click", () => switchSession(session.id));
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") switchSession(session.id);
+    });
     $("conversationArchiveList").append(item);
   }
+}
+
+function archiveSessions(route) {
+  const sessionMap = new Map();
+  for (const session of state.sessions || []) {
+    if (session.id !== state.activeSessionId && (session.routeLabel || "general") === route) {
+      sessionMap.set(session.id, { ...session, messages: [], messageCount: session.messageCount || 0 });
+    }
+  }
+  for (const message of state.conversations || []) {
+    if (message.conversationId === state.activeSessionId) continue;
+    if ((message.routeLabel || "general") !== route) continue;
+    const existing = sessionMap.get(message.conversationId) || {
+      id: message.conversationId,
+      title: "",
+      routeLabel: message.routeLabel || route,
+      messages: [],
+      messageCount: 0,
+      updatedAt: message.timestamp,
+      lastMessageAt: message.timestamp
+    };
+    existing.messages.push(message);
+    existing.messageCount = existing.messages.length;
+    existing.lastMessageAt = message.timestamp;
+    if (!existing.title && message.role === "user") existing.title = archiveTitle(message.content);
+    sessionMap.set(message.conversationId, existing);
+  }
+  return [...sessionMap.values()]
+    .map((session) => ({
+      ...session,
+      title: archiveTitle(session.title || session.messages?.find((message) => message.role === "user")?.content || "Luma session")
+    }))
+    .sort((a, b) => String(b.lastMessageAt || b.updatedAt || "").localeCompare(String(a.lastMessageAt || a.updatedAt || "")))
+    .slice(0, 12);
+}
+
+function archiveTitle(text) {
+  const cleaned = String(text || "Luma session").replace(/\s+/g, " ").trim();
+  return cleaned.length > 42 ? `${cleaned.slice(0, 39)}...` : cleaned;
 }
 
 function formatShortTime(timestamp) {
@@ -562,6 +601,19 @@ function renderMemoryWorkspace() {
   if (memory.nextStep) bits.push(`Next: ${memory.nextStep}`);
   $("workingMemoryLine").textContent = bits.length ? bits.join(" · ") : t("workingMemoryEmpty");
 
+  const memoryLine = $("workingMemoryLine");
+  memoryLine.innerHTML = "";
+  memoryLine.classList.toggle("hidden", !memory.activeProject);
+  if (memory.activeProject) {
+    const label = document.createElement("span");
+    label.textContent = `Project context: ${memory.activeProject}`;
+    const exit = document.createElement("button");
+    exit.type = "button";
+    exit.textContent = "Exit";
+    exit.addEventListener("click", startFreshSession);
+    memoryLine.append(label, exit);
+  }
+
   $("projectCount").textContent = String(state.projects?.length || 0);
   $("projectList").innerHTML = "";
   if (!state.projects?.length) {
@@ -573,9 +625,15 @@ function renderMemoryWorkspace() {
   for (const project of (state.projects || []).slice(-5).reverse()) {
     const row = document.createElement("div");
     row.className = "project-item";
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
     row.innerHTML = `<strong></strong><small></small>`;
     row.querySelector("strong").textContent = project.name;
     row.querySelector("small").textContent = [project.state, project.nextStep ? `next: ${project.nextStep}` : ""].filter(Boolean).join(" · ");
+    row.addEventListener("click", () => activateProject(project.id));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") activateProject(project.id);
+    });
     $("projectList").append(row);
   }
 
@@ -804,6 +862,20 @@ async function startFreshSession() {
   await load(result.state);
 }
 
+async function activateProject(projectId) {
+  const result = await api("/api/projects/active", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      routeLabel: activeRouteLabel || state.activeSession?.routeLabel || "academic"
+    })
+  });
+  activeRouteLabel = result.session.routeLabel || activeRouteLabel;
+  pendingProposal = null;
+  lastReceiptNote = "Project loaded into this session.";
+  await load(result.state);
+}
+
 async function updateReminder(id, patch) {
   const result = await api(`/api/reminders/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
   await load(result.state);
@@ -938,23 +1010,28 @@ $("chatForm").addEventListener("submit", async (event) => {
   thinking.textContent = "Luma is thinking...";
   $("chatMessages").append(thinking);
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
-  const result = await api("/api/chat/propose", {
-    method: "POST",
-    body: JSON.stringify({
-      text,
-      sessionId: state.activeSessionId,
-      routeLabel: activeRouteLabel || state.activeSession?.routeLabel || "general"
-    })
-  });
-  pendingProposal = result.proposal?.proposedActions?.length ? result.proposal : null;
-  await load(result.state);
+  try {
+    const result = await api("/api/chat/propose", {
+      method: "POST",
+      body: JSON.stringify({
+        text,
+        sessionId: state.activeSessionId,
+        routeLabel: activeRouteLabel || state.activeSession?.routeLabel || "general"
+      })
+    });
+    pendingProposal = result.proposal?.proposedActions?.length ? result.proposal : null;
+    await load(result.state);
+  } catch (error) {
+    thinking.textContent = error.message || "Luma could not process that message.";
+    showNotice(thinking.textContent);
+  }
 });
 
 $("confirmProposalButton").addEventListener("click", async () => {
   if (!pendingProposal) return;
   const result = await api("/api/chat/confirm", {
     method: "POST",
-    body: JSON.stringify({ proposedActions: pendingProposal.proposedActions })
+    body: JSON.stringify({ proposedActions: pendingProposal.proposedActions, sessionId: state.activeSessionId, memoryTitle: pendingProposal.memoryTitle })
   });
   pendingProposal = null;
   lastReceiptNote = state.settings?.language === "zh" ? "Luma 已执行并写入本地记忆。" : "Luma executed the action and wrote local memory.";

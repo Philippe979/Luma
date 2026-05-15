@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { normalizeWithDeepSeek, parseWithDeepSeek } from "./deepseek.js";
 import { parseChatInput } from "./parser.js";
-import { addMemoryEvent } from "./memory.js";
+import { addMemoryEvent, emptyWorkingMemory, projectWorkingMemory } from "./memory.js";
 import { addSessionMessage } from "./conversation.js";
 import { routeProfile } from "./entry_routes.js";
 import { addProcessStep, finishProcessTrace, startProcessTrace } from "./process_trace.js";
@@ -15,6 +15,9 @@ import { readDb, saveDb } from "./storage.js";
 export async function proposeFromChat(db, body) {
   const text = String(body.text || "").trim();
   if (!text) throw new Error("Chat input is required.");
+  if (text.length > 12000) {
+    throw new Error("This message is too long for one Luma turn. Please split it into smaller parts.");
+  }
 
   const session = ensureActiveSession(db, {
     sessionId: body.sessionId,
@@ -26,7 +29,8 @@ export async function proposeFromChat(db, body) {
   addProcessStep(trace, "Question received");
   addProcessStep(trace, `Context selected: ${route.label}`, "done", route.tone);
 
-  const inputPacket = await buildNormalizedInputPacket(db, text);
+  const contextDb = scopedDbForSession(db, session);
+  const inputPacket = await buildNormalizedInputPacket(contextDb, text, session, route);
   inputPacket.session = {
     id: session.id,
     title: session.title,
@@ -36,13 +40,14 @@ export async function proposeFromChat(db, body) {
   };
   addProcessStep(trace, "Input normalized");
   addSessionMessage(db, { role: "user", content: text, source: "chat", sessionId: session.id, routeLabel: route.id, projectId: session.projectId });
-  const parsed = await parseWithFallback(text, db, inputPacket);
+  const parsed = await parseWithFallback(text, contextDb, inputPacket, db);
   addProcessStep(trace, "Memory and action proposal prepared", "done", `${parsed.proposedActions?.length || 0} proposed action(s)`);
   const proposal = {
     id: crypto.randomUUID(),
     text,
     response: parsed.response,
     confidence: parsed.confidence,
+    memoryTitle: parsed.memoryTitle || inferMemoryTitle(text),
     proposedActions: parsed.proposedActions,
     parser: parsed.parser || "local",
     inputPacket,
@@ -55,11 +60,11 @@ export async function proposeFromChat(db, body) {
   addSessionMessage(db, { role: "assistant", content: proposal.response, source: proposal.parser === "deepseek" ? "deepseek" : "local_parser", sessionId: session.id, routeLabel: route.id, projectId: session.projectId });
   addMemoryEvent(db, {
     type: "chat_interaction",
-    summary: proposal.response,
+    summary: proposal.memoryTitle,
     source: "chat",
     userText: text,
     actions: parsed.proposedActions,
-    metadata: { proposalId: proposal.id, confidence: parsed.confidence, parser: proposal.parser, inputPacket, sessionId: session.id, routeLabel: route.id, projectId: session.projectId }
+    metadata: { proposalId: proposal.id, title: proposal.memoryTitle, response: proposal.response, confidence: parsed.confidence, parser: proposal.parser, inputPacket, sessionId: session.id, routeLabel: route.id, projectId: session.projectId }
   });
   touchSession(db, session.id, { titleHint: text, routeLabel: route.id, projectId: session.projectId });
   addProcessStep(trace, "Response generated");
@@ -100,22 +105,43 @@ export function trainBrainInBackground({ userText, inputPacket, expertProposal }
 export function executeProposal(db, body) {
   const actions = body.proposedActions || [];
   if (!actions.length) throw new Error("No proposed actions to execute.");
+  const session = ensureActiveSession(db, { sessionId: body.sessionId });
   const results = actions.map((action) => ({
     action,
-    result: executeTool(db, action, "chat_confirmed")
+    result: executeTool(db, action, "chat_confirmed", {
+      sessionId: session.id,
+      projectId: session.projectId || null,
+      title: body.memoryTitle || inferMemoryTitle(action.reason || action.tool)
+    })
   }));
+  for (const { action, result } of results) {
+    if ((action.tool === "save_project_progress" || action.tool === "create_continuation") && result?.id) {
+      if (action.args?.state === "done") {
+        if (session.projectId === result.id) session.projectId = null;
+      } else {
+        touchSession(db, session.id, { projectId: result.id });
+      }
+    }
+  }
   addMemoryEvent(db, {
     type: "proposal_confirmed",
     summary: `${actions.length} action${actions.length > 1 ? "s" : ""} confirmed`,
     source: "chat",
     actions,
-    metadata: { results: results.map(({ action }) => action.tool) }
+    metadata: { title: body.memoryTitle || "Actions confirmed", results: results.map(({ action }) => action.tool), sessionId: session.id, projectId: session.projectId || null }
   });
   return results;
 }
 
-async function buildNormalizedInputPacket(db, text) {
+async function buildNormalizedInputPacket(db, text, session, route) {
   const inputPacket = buildInputPacket(db, text);
+  inputPacket.session = {
+    id: session.id,
+    title: session.title,
+    routeLabel: route.id,
+    routeTone: route.tone,
+    projectId: session.projectId
+  };
   try {
     return await normalizeWithDeepSeek(text, db, inputPacket);
   } catch {
@@ -123,21 +149,43 @@ async function buildNormalizedInputPacket(db, text) {
   }
 }
 
-async function parseWithFallback(text, db, inputPacket) {
+async function parseWithFallback(text, parserDb, inputPacket, eventDb = parserDb) {
   try {
-    const llm = await parseWithDeepSeek(text, db, inputPacket);
+    const llm = await parseWithDeepSeek(text, parserDb, inputPacket);
     if (llm?.response || llm?.proposedActions?.length) return { ...llm, parser: "deepseek" };
   } catch (error) {
-    addMemoryEvent(db, {
+    addMemoryEvent(eventDb, {
       type: "llm_error",
       summary: error.message,
       source: "deepseek",
       metadata: { provider: "deepseek" }
     });
   }
-  return { ...parseChatInput(text, db), parser: "local" };
+  return { ...parseChatInput(text, parserDb), parser: "local" };
 }
 
 function estimateTokens(text) {
   return Math.ceil(String(text || "").length * 0.6);
+}
+
+function inferMemoryTitle(text) {
+  const cleaned = String(text || "")
+    .replace(/\s+/g, " ")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim();
+  if (!cleaned) return "Luma conversation";
+  return cleaned.length > 70 ? `${cleaned.slice(0, 67)}...` : cleaned;
+}
+
+function scopedDbForSession(db, session) {
+  const project = session.projectId ? (db.projects || []).find((item) => item.id === session.projectId) : null;
+  const scoped = {
+    ...db,
+    projects: project ? [project] : [],
+    workingMemory: project ? projectWorkingMemory(project) : emptyWorkingMemory(),
+    memoryEvents: project
+      ? (db.memoryEvents || []).filter((event) => event.metadata?.project === project.name || event.metadata?.projectId === project.id)
+      : (db.memoryEvents || []).filter((event) => event.metadata?.sessionId === session.id)
+  };
+  return scoped;
 }

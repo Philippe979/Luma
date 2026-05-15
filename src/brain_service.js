@@ -76,6 +76,7 @@ function baseTrainingSample(db, { userText, inputPacket, expertProposal }) {
     },
     expertOutput: {
       provider: "deepseek",
+      memoryTitle: expertProposal.memoryTitle || null,
       response: expertProposal.response,
       proposedActions: expertProposal.proposedActions,
       confidence: expertProposal.confidence

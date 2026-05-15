@@ -76,11 +76,13 @@ export function parseChatInput(text, db) {
       };
     }
 
-    actions.push({
-      tool: "save_memory_note",
-      args: { note: input },
-      reason: "Save this as memory"
-    });
+    if (explicitlyAsksForMemory(input)) {
+      actions.push({
+        tool: "save_memory_note",
+        args: { note: input },
+        reason: "Save this as memory"
+      });
+    }
   }
 
   return {
@@ -165,7 +167,15 @@ function extractTime(input) {
   }
   const dayOffset = /明天/.test(input) ? 1 : 0;
   const match = input.match(/(?:下午|晚上|上午|早上)?\s*(\d{1,2})[:：点](\d{0,2})?/);
-  if (!match) return null;
+  if (!match) {
+    const vague = input.match(/(明天|今天)?\s*(早上|上午|下午|晚上)/);
+    if (!vague) return null;
+    const due = new Date(now);
+    due.setDate(now.getDate() + (/明天/.test(input) ? 1 : 0));
+    const hour = /下午/.test(input) ? 14 : /晚上/.test(input) ? 20 : 9;
+    due.setHours(hour, 0, 0, 0);
+    return due;
+  }
   let hour = Number(match[1]);
   const minute = match[2] ? Number(match[2]) : 0;
   if ((/下午|晚上/.test(input)) && hour < 12) hour += 12;
@@ -210,13 +220,17 @@ function clean(value) {
 }
 
 function buildResponse(actions) {
-  if (!actions.length) return "I can save this as memory.";
+  if (!actions.length) return "I am here. I will keep this chat separate unless you ask me to use memory.";
   const labels = actions.map((action) => action.tool.replaceAll("_", " ")).join(", ");
   return `I found ${actions.length} action${actions.length > 1 ? "s" : ""}: ${labels}.`;
 }
 
 function isSmallTalk(input) {
   return /^(hi|hello|hey|yo|good morning|good afternoon|good evening|welcome|hi[,! ]|hello[,! ]|嗨|你好|早上好|下午好|晚上好|欢迎)/i.test(input.trim());
+}
+
+function explicitlyAsksForMemory(input) {
+  return /(remember|record|save this|save as memory|keep this|note this|preference|project|progress|remind|deadline|记住|记录|保存|提醒|偏好|项目|进度)/i.test(input);
 }
 
 function smallTalkResponse(input) {

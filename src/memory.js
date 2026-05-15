@@ -56,7 +56,32 @@ export function updateWorkingMemory(db, patch) {
   return db.workingMemory;
 }
 
+export function emptyWorkingMemory() {
+  return {
+    activeProject: null,
+    lastProgress: null,
+    nextStep: null,
+    updatedAt: null
+  };
+}
+
+export function clearWorkingMemory(db) {
+  db.workingMemory = emptyWorkingMemory();
+  return db.workingMemory;
+}
+
+export function projectWorkingMemory(project) {
+  if (!project) return emptyWorkingMemory();
+  return {
+    activeProject: project.name || null,
+    lastProgress: project.currentProgress || null,
+    nextStep: project.nextStep || null,
+    updatedAt: project.updatedAt || null
+  };
+}
+
 export function upsertProject(db, { project, progress = "", nextStep = null, state = "active" }) {
+  db.projects = db.projects || [];
   const id = slug(project);
   const existing = (db.projects || []).find((item) => item.id === id);
   const now = new Date().toISOString();
@@ -82,22 +107,25 @@ export function upsertProject(db, { project, progress = "", nextStep = null, sta
   if (existing) Object.assign(existing, entry);
   else db.projects.push(entry);
 
-  updateWorkingMemory(db, {
-    activeProject: state === "done" ? null : project,
-    lastProgress: progress || null,
-    nextStep
-  });
-
   return entry;
 }
 
-export function recentMemory(db, limit = 6) {
-  return [...(db.memoryEvents || [])].slice(-limit).reverse();
+export function recentMemory(db, limit = 6, scope = {}) {
+  let events = [...(db.memoryEvents || [])];
+  if (scope.projectId || scope.projectName) {
+    events = events.filter((event) => {
+      const metadata = event.metadata || {};
+      return metadata.projectId === scope.projectId || metadata.project === scope.projectName;
+    });
+  } else if (scope.sessionId) {
+    events = events.filter((event) => event.metadata?.sessionId === scope.sessionId);
+  }
+  return events.slice(-limit).reverse();
 }
 
-export function suggestedActions(db) {
+export function suggestedActions(db, scope = {}) {
   const suggestions = [];
-  const memory = db.workingMemory || {};
+  const memory = scope.workingMemory || db.workingMemory || {};
 
   if (memory.activeProject) {
     suggestions.push({
@@ -108,6 +136,8 @@ export function suggestedActions(db) {
       source: "working_memory"
     });
   }
+
+  if (!scope.allowGlobalPatterns) return suggestions.slice(0, 4);
 
   const projectCounts = {};
   for (const event of db.memoryEvents || []) {
