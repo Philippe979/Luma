@@ -30,7 +30,6 @@
         <nav class="tabs" aria-label="Luma sections">
           <button class="tab active" data-view="today" data-i18n="today">Today</button>
           <button class="tab" data-view="setup" data-i18n="memory">Memory</button>
-          <button class="tab" data-view="learning" data-i18n="iteration">Iteration</button>
           <button class="tab" data-view="usage" data-i18n="usage">Usage</button>
         </nav>
 
@@ -50,7 +49,19 @@
           <section class="workspace-grid">
             <aside class="side-rail">
               <div class="section-title">
-                <h3 data-i18n="todayBrief">Today</h3>
+                <h3>Entry</h3>
+                <span id="activeRoutePill" class="pill">General</span>
+              </div>
+              <div id="entryRouteList" class="route-list"></div>
+
+              <div class="section-title side-title">
+                <h3>Continue Session</h3>
+                <button id="newSessionButton" class="mini-button" type="button">New</button>
+              </div>
+              <div id="sessionList" class="session-list"></div>
+
+              <div class="section-title side-title">
+                <h3>Today</h3>
                 <span id="reminderCount" class="pill">0</span>
               </div>
               <div id="reminderList" class="reminder-list"></div>
@@ -81,7 +92,20 @@
                 <p class="luma-presence">Hi, I am Luma.</p>
               </div>
 
+              <section id="contextReceipt" class="context-receipt">
+                <div>
+                  <span id="contextReceiptState" class="receipt-dot"></span>
+                  <strong>Context confirmed</strong>
+                </div>
+                <p id="contextReceiptLine">Loading context...</p>
+              </section>
+
               <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
+
+              <details id="processPanel" class="process-card hidden">
+                <summary>View Process</summary>
+                <div id="processList" class="process-list"></div>
+              </details>
 
               <section id="proposalPanel" class="proposal-card hidden">
                 <div class="section-title">
@@ -103,7 +127,7 @@
 
               <div class="section-title action-title">
                 <h3 data-i18n="suggestedActions">Suggested Actions</h3>
-                <span class="pill">V2</span>
+                <span class="pill">V2.1</span>
               </div>
               <div id="suggestedActionList" class="action-card-grid"></div>
             </section>
@@ -321,25 +345,6 @@
             </div>
             <p id="lanLine" class="muted">Loading LAN address...</p>
             <button id="codexButton" class="text-button wide-button" data-i18n="copyCodex">Copy Codex Context</button>
-          </section>
-        </section>
-
-        <section id="learningView" class="view">
-          <section class="block">
-            <div class="section-title">
-              <h3 data-i18n="iterationReadiness">Iteration Readiness</h3>
-              <span id="learningStatus" class="pill">cold start</span>
-            </div>
-            <p class="muted iteration-note" data-i18n="iterationNote">Luma needs high-quality structured memory before the next brain iteration.</p>
-            <div id="learningCards" class="metric-grid"></div>
-          </section>
-
-          <section class="block">
-            <div class="section-title">
-              <h3 data-i18n="memoryQuality">Memory Quality</h3>
-              <span id="statusSampleTotal" class="pill">0</span>
-            </div>
-            <div id="statusChart" class="chart-list"></div>
           </section>
         </section>
 

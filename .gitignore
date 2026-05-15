@@ -1,0 +1,6 @@
+data/
+.env
+.DS_Store
+.Rhistory
+node_modules/
+npm-debug.log*

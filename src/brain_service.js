@@ -91,7 +91,19 @@ function baseTrainingSample(db, { userText, inputPacket, expertProposal }) {
 }
 
 async function callBrain(sample) {
-  const response = await fetch(`${config.brainEndpoint.replace(/\/$/, "")}/v1/chat/completions`, {
+  const endpoint = config.brainEndpoint.replace(/\/$/, "");
+  try {
+    return await callOpenAiCompatibleBrain(endpoint, sample);
+  } catch (error) {
+    if (/localhost:11434|127\.0\.0\.1:11434/.test(endpoint)) {
+      return callOllamaBrain(endpoint, sample);
+    }
+    throw error;
+  }
+}
+
+async function callOpenAiCompatibleBrain(endpoint, sample) {
+  const response = await fetchWithTimeout(`${endpoint}/v1/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -104,13 +116,92 @@ async function callBrain(sample) {
         { role: "user", content: JSON.stringify(sample, null, 2) }
       ],
       response_format: { type: "json_object" },
+      think: false,
       temperature: 0.2
     })
-  });
+  }, 12000);
   if (!response.ok) throw new Error(`Brain request failed: ${response.status} ${(await response.text()).slice(0, 180)}`);
   const payload = await response.json();
-  const content = payload.choices?.[0]?.message?.content || "{}";
-  return JSON.parse(content);
+  const content = payload.choices?.[0]?.message?.content || "";
+  return parseBrainPacket(content, sample, "openai-compatible");
+}
+
+async function callOllamaBrain(endpoint, sample) {
+  const response = await fetch(`${endpoint}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: config.brainModel,
+      prompt: `${brainSystemPrompt()}\n\nTraining sample:\n${JSON.stringify(sample, null, 2)}`,
+      stream: false,
+      think: false,
+      format: "json",
+      options: {
+        temperature: 0.2,
+        num_predict: 700
+      }
+    })
+  });
+  if (!response.ok) throw new Error(`Ollama brain request failed: ${response.status} ${(await response.text()).slice(0, 180)}`);
+  const payload = await response.json();
+  return parseBrainPacket(payload.response || "", sample, "ollama");
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseBrainPacket(content, sample, providerPath) {
+  try {
+    const packet = JSON.parse(String(content || "{}"));
+    if (packet?.memory_packet) return packet;
+    return fallbackBrainPacket(sample, `${providerPath}_empty_packet`);
+  } catch {
+    return fallbackBrainPacket(sample, `${providerPath}_invalid_json`);
+  }
+}
+
+function fallbackBrainPacket(sample, reason) {
+  return {
+    normalized_input: {
+      text_en: sample.inputPacket?.normalizedTextEn || sample.inputPacket?.originalText || "",
+      task_type: sample.inputPacket?.taskType || "general",
+      entities: sample.inputPacket?.entities || []
+    },
+    router_decision: {
+      route: "local_future",
+      confidence: 0.5,
+      reason
+    },
+    memory_packet: {
+      conversation_memory: {
+        session: sample.inputPacket?.session || null,
+        originalText: sample.inputPacket?.originalText || "",
+        expertResponse: sample.expertOutput?.response || ""
+      },
+      project_memory: null,
+      preference_memory: [],
+      skill_memory: [],
+      status_context: {
+        behaviorMode: sample.inputPacket?.behaviorMode || null,
+        routeLabel: sample.inputPacket?.session?.routeLabel || null
+      },
+      location_context: {
+        location: sample.inputPacket?.context?.location || null,
+        weather: sample.inputPacket?.context?.weather || null,
+        temperature: sample.inputPacket?.context?.temperature ?? null
+      },
+      emotional_signal: null
+    },
+    learning_notes: [`Generated fallback packet because ${reason}.`],
+    quality_score: 0.5
+  };
 }
 
 function brainSystemPrompt() {

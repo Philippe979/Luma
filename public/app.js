@@ -1,6 +1,8 @@
 let state = null;
 let lastReceiptNote = "";
 let pendingProposal = null;
+let activeRouteLabel = "general";
+let lastRenderedSessionId = null;
 let currentSessionStartedAt = new Date().toISOString();
 
 const $ = (id) => document.getElementById(id);
@@ -293,6 +295,7 @@ function render() {
   renderLanguage();
   renderReceipt();
   renderTabs();
+  renderContextNavigation();
   renderStatusControls();
   renderReminderControls();
   renderReminders();
@@ -303,7 +306,6 @@ function render() {
   renderMemoryWorkspace();
   renderUsage();
   renderSetup();
-  renderLearning();
 }
 
 function renderLanguage() {
@@ -325,12 +327,69 @@ function renderReceipt() {
   $("ambientWeather").textContent = normalizeUnknown(receipt.weather);
   const brain = state.localLlm?.enabled ? state.localLlm.model : state.llm?.enabled ? state.llm.model : "local parser";
   $("ambientBrain").textContent = `Brain: ${brain}`;
+  renderContextReceipt(receipt);
   if (lastReceiptNote) showNotice(lastReceiptNote);
+}
+
+function renderContextReceipt(receipt) {
+  const routeId = activeRouteLabel || state.activeSession?.routeLabel || "general";
+  const route = (state.entryRoutes || []).find((item) => item.id === routeId);
+  const status = receipt.statusId ? receipt.statusLabel : "Status unknown";
+  const location = normalizeUnknown(receipt.location);
+  const weather = normalizeUnknown(receipt.weather);
+  const time = state.features.displayTime || receipt.time || t("unknown");
+  const needsCheck = !receipt.statusId || location === t("unknown");
+  $("contextReceiptState").classList.toggle("needs-check", needsCheck);
+  $("contextReceipt").classList.toggle("needs-check", needsCheck);
+  $("contextReceipt").querySelector("strong").textContent = needsCheck ? "Context needs check" : "Context confirmed";
+  $("contextReceiptLine").textContent = `${status} · ${location} · ${weather} · ${time} · ${route?.label || "General"}`;
 }
 
 function renderTabs() {
   for (const tab of $$(".tab")) {
     tab.onclick = () => switchView(tab.dataset.view);
+  }
+}
+
+function renderContextNavigation() {
+  if (state.activeSessionId !== lastRenderedSessionId) {
+    activeRouteLabel = state.activeSession?.routeLabel || "general";
+    lastRenderedSessionId = state.activeSessionId;
+  }
+  const activeRoute = (state.entryRoutes || []).find((route) => route.id === activeRouteLabel);
+  $("activeRoutePill").textContent = activeRoute?.label || "General";
+
+  $("entryRouteList").innerHTML = "";
+  for (const route of state.entryRoutes || []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = route.id === activeRouteLabel ? "route-item active" : "route-item";
+    button.innerHTML = `<strong></strong><small></small>`;
+    button.querySelector("strong").textContent = route.label;
+    button.querySelector("small").textContent = route.tone;
+    button.addEventListener("click", () => switchEntryRoute(route.id));
+    $("entryRouteList").append(button);
+  }
+
+  $("sessionList").innerHTML = "";
+  for (const session of state.sessions || []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = session.id === state.activeSessionId ? "session-item active" : "session-item";
+    button.innerHTML = `<strong></strong><small></small>`;
+    button.querySelector("strong").textContent = session.title || "Untitled session";
+    button.querySelector("small").textContent = [
+      routeLabel(session.routeLabel),
+      session.messageCount ? `${session.messageCount} messages` : "no messages yet"
+    ].join(" · ");
+    button.addEventListener("click", () => switchSession(session.id));
+    $("sessionList").append(button);
+  }
+  if (!state.sessions?.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty quiet-empty";
+    empty.textContent = "No sessions yet.";
+    $("sessionList").append(empty);
   }
 }
 
@@ -384,14 +443,13 @@ function renderReminders() {
 function renderChatWorkspace() {
   $("chatMessages").innerHTML = "";
   $("chatGreeting").textContent = greetingText();
-  const messages = (state.conversations || [])
-    .filter((message) => !message.timestamp || message.timestamp >= currentSessionStartedAt)
-    .slice(-8);
+  const messages = (state.sessionMessages || []).slice(-24);
   if (!messages.length) {
     const starter = document.createElement("div");
     starter.className = "message assistant";
     starter.textContent = "Hi, I am Luma.";
     $("chatMessages").append(starter);
+    renderProcessPanel();
     return;
   }
 
@@ -402,11 +460,30 @@ function renderChatWorkspace() {
     $("chatMessages").append(bubble);
   }
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
+  renderProcessPanel();
+}
+
+function renderProcessPanel() {
+  const trace = state.latestProcess;
+  $("processPanel").classList.toggle("hidden", !trace);
+  $("processList").innerHTML = "";
+  if (!trace) return;
+  for (const step of trace.steps || []) {
+    const row = document.createElement("div");
+    row.className = "process-step";
+    row.innerHTML = `<span></span><div><strong></strong><small></small></div>`;
+    row.querySelector("span").textContent = step.state === "running" ? "..." : "✓";
+    row.querySelector("strong").textContent = step.label;
+    row.querySelector("small").textContent = step.detail || formatShortTime(step.timestamp);
+    $("processList").append(row);
+  }
 }
 
 function renderConversationArchive() {
+  const route = activeRouteLabel || state.activeSession?.routeLabel || "general";
   const archived = (state.conversations || [])
-    .filter((message) => message.timestamp && message.timestamp < currentSessionStartedAt)
+    .filter((message) => message.conversationId !== state.activeSessionId)
+    .filter((message) => (message.routeLabel || "general") === route)
     .slice(-12)
     .reverse();
   $("conversationArchiveCount").textContent = archived.length;
@@ -438,6 +515,10 @@ function formatShortTime(timestamp) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function routeLabel(id) {
+  return (state.entryRoutes || []).find((route) => route.id === id)?.label || "General";
 }
 
 function greetingText() {
@@ -692,6 +773,37 @@ async function switchStatus(payload) {
   switchView("today");
 }
 
+async function switchSession(sessionId) {
+  const result = await api("/api/sessions/active", { method: "POST", body: JSON.stringify({ sessionId }) });
+  activeRouteLabel = result.session.routeLabel || "general";
+  pendingProposal = null;
+  await load(result.state);
+}
+
+async function switchEntryRoute(routeId) {
+  activeRouteLabel = routeId || "general";
+  pendingProposal = null;
+  const result = await api("/api/sessions/fresh", {
+    method: "POST",
+    body: JSON.stringify({ routeLabel: activeRouteLabel })
+  });
+  activeRouteLabel = result.session.routeLabel || activeRouteLabel;
+  lastReceiptNote = `Entry route: ${routeLabel(activeRouteLabel)}`;
+  await load(result.state);
+}
+
+async function startFreshSession() {
+  const routeLabel = activeRouteLabel || state.activeSession?.routeLabel || "general";
+  const result = await api("/api/sessions/fresh", {
+    method: "POST",
+    body: JSON.stringify({ routeLabel })
+  });
+  activeRouteLabel = result.session.routeLabel || routeLabel;
+  pendingProposal = null;
+  currentSessionStartedAt = new Date().toISOString();
+  await load(result.state);
+}
+
 async function updateReminder(id, patch) {
   const result = await api(`/api/reminders/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
   await load(result.state);
@@ -805,9 +917,10 @@ function weatherFromCode(code) {
 }
 
 $("refreshButton").addEventListener("click", async () => {
-  currentSessionStartedAt = new Date().toISOString();
-  pendingProposal = null;
-  await load();
+  await startFreshSession();
+});
+$("newSessionButton").addEventListener("click", async () => {
+  await startFreshSession();
 });
 $("openStatusButton").addEventListener("click", () => jumpToSetup("statusPanel"));
 $("openReminderButton").addEventListener("click", () => jumpToSetup("reminderPanel"));
@@ -820,7 +933,19 @@ $("chatForm").addEventListener("submit", async (event) => {
   const text = $("chatInput").value.trim();
   if (!text) return;
   $("chatInput").value = "";
-  const result = await api("/api/chat/propose", { method: "POST", body: JSON.stringify({ text }) });
+  const thinking = document.createElement("div");
+  thinking.className = "message assistant thinking-message";
+  thinking.textContent = "Luma is thinking...";
+  $("chatMessages").append(thinking);
+  $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
+  const result = await api("/api/chat/propose", {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      sessionId: state.activeSessionId,
+      routeLabel: activeRouteLabel || state.activeSession?.routeLabel || "general"
+    })
+  });
   pendingProposal = result.proposal?.proposedActions?.length ? result.proposal : null;
   await load(result.state);
 });
@@ -1001,6 +1126,9 @@ async function boot() {
     return;
   }
   await load();
+  if ((state.activeSession?.messageCount || 0) > 0) {
+    await startFreshSession();
+  }
 }
 
 function showAuthGate(message) {

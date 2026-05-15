@@ -44,6 +44,9 @@ function normalizeDb(db) {
     statuses: db.statuses?.length ? db.statuses : seedStatuses,
     reminders: db.reminders || [],
     history: db.history || [],
+    sessions: db.sessions || [],
+    activeSessionId: db.activeSessionId || null,
+    processTraces: db.processTraces || [],
     memoryEvents: db.memoryEvents || [],
     actionEvents: db.actionEvents || [],
     conversations: db.conversations || [],
@@ -65,6 +68,32 @@ function normalizeDb(db) {
     alerts: reminder.alerts || [],
     done: Boolean(reminder.done),
     ...reminder
+  }));
+
+  if (!normalized.sessions.length) {
+    const firstMessage = normalized.conversations[0];
+    const lastMessage = normalized.conversations.at(-1);
+    normalized.sessions.push({
+      id: "default",
+      title: "General Session",
+      routeLabel: "general",
+      projectId: null,
+      summary: "",
+      state: "active",
+      messageCount: normalized.conversations.length,
+      createdAt: firstMessage?.timestamp || new Date().toISOString(),
+      updatedAt: lastMessage?.timestamp || new Date().toISOString(),
+      lastMessageAt: lastMessage?.timestamp || null
+    });
+  }
+
+  normalized.activeSessionId = normalized.activeSessionId || normalized.sessions[0]?.id || "default";
+  normalized.conversations = normalized.conversations.map((message) => ({
+    conversationId: normalized.activeSessionId,
+    routeLabel: "general",
+    projectId: null,
+    ...message,
+    conversationId: message.conversationId || normalized.activeSessionId
   }));
 
   return normalized;
