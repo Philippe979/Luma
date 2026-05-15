@@ -1,10 +1,28 @@
+import { parseContextIntent } from "./context_intent.js";
+
 export function parseChatInput(text, db) {
   const input = String(text || "").trim();
   const lower = input.toLowerCase();
   const actions = [];
 
+  const contextIntent = parseContextIntent(input);
+  if (contextIntent?.contextPatch && Object.keys(contextIntent.contextPatch).length) {
+    actions.push({
+      tool: "update_context",
+      args: contextIntent.contextPatch,
+      reason: contextIntent.summary
+    });
+  }
+  if (contextIntent?.statusLabel) {
+    actions.push({
+      tool: "update_status",
+      args: { label: contextIntent.statusLabel },
+      reason: `Set current status to ${contextIntent.statusLabel}`
+    });
+  }
+
   const status = matchStatus(input);
-  if (status) {
+  if (status && !contextIntent?.statusLabel) {
     actions.push({
       tool: "update_status",
       args: { label: status },

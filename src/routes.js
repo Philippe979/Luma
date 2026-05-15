@@ -12,6 +12,9 @@ import { publicLlmState, readSecrets, saveSecrets } from "./secrets.js";
 import { usageSummary } from "./usage.js";
 import { brainState } from "./brain_service.js";
 import { optimizerState } from "./optimizer.js";
+import { entryRoutes } from "./entry_routes.js";
+import { createSession, activateFreshSession, activateSession, ensureActiveSession, recentSessionsForRoute, sessionMessages } from "./sessions.js";
+import { latestProcessTrace } from "./process_trace.js";
 
 export function createRouter() {
   return async function router(req, res, url) {
@@ -91,6 +94,31 @@ export function createRouter() {
       return sendJson(res, 200, { ok: true, project, state: statePayload(db, secrets) });
     }
 
+    if (req.method === "POST" && url.pathname === "/api/sessions") {
+      const body = await readJson(req);
+      const session = createSession(db, {
+        title: body.title || "New Session",
+        routeLabel: body.routeLabel || "general",
+        projectId: body.projectId || null
+      });
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, session, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/sessions/fresh") {
+      const body = await readJson(req);
+      const session = activateFreshSession(db, body.routeLabel || "general");
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, session, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/sessions/active") {
+      const body = await readJson(req);
+      const session = activateSession(db, body.sessionId);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, session, state: statePayload(db, secrets) });
+    }
+
     if (req.method === "POST" && url.pathname === "/api/chat/propose") {
       const proposal = await proposeFromChat(db, await readJson(req));
       await saveDb(db);
@@ -139,6 +167,7 @@ export function createRouter() {
 }
 
 function statePayload(db, secrets = null) {
+  const activeSession = ensureActiveSession(db);
   return {
     ...predictStatus(db),
     activeStatusId: db.activeStatusId,
@@ -146,6 +175,12 @@ function statePayload(db, secrets = null) {
     receipt: statusReceipt(db),
     statuses: db.statuses,
     reminders: db.reminders,
+    entryRoutes,
+    sessions: recentSessionsForRoute(db, activeSession.routeLabel),
+    activeSessionId: activeSession.id,
+    activeSession,
+    sessionMessages: sessionMessages(db, activeSession.id),
+    latestProcess: latestProcessTrace(db, activeSession.id),
     activeReminders: activeReminders(db),
     dueAlerts: dueAlerts(db),
     memoryEvents: db.memoryEvents || [],

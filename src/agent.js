@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import { normalizeWithDeepSeek, parseWithDeepSeek } from "./deepseek.js";
 import { parseChatInput } from "./parser.js";
-import { addConversationMessage, addMemoryEvent } from "./memory.js";
+import { addMemoryEvent } from "./memory.js";
+import { addSessionMessage } from "./conversation.js";
+import { routeProfile } from "./entry_routes.js";
+import { addProcessStep, finishProcessTrace, startProcessTrace } from "./process_trace.js";
+import { ensureActiveSession, touchSession } from "./sessions.js";
 import { executeTool } from "./tools.js";
 import { addUsageEvent } from "./usage.js";
 import { trainWithBrain } from "./brain_service.js";
@@ -12,9 +16,28 @@ export async function proposeFromChat(db, body) {
   const text = String(body.text || "").trim();
   if (!text) throw new Error("Chat input is required.");
 
+  const session = ensureActiveSession(db, {
+    sessionId: body.sessionId,
+    routeLabel: body.routeLabel,
+    projectId: body.projectId || null
+  });
+  const route = routeProfile(body.routeLabel || session.routeLabel);
+  const trace = startProcessTrace(db, { sessionId: session.id, routeLabel: route.id });
+  addProcessStep(trace, "Question received");
+  addProcessStep(trace, `Context selected: ${route.label}`, "done", route.tone);
+
   const inputPacket = await buildNormalizedInputPacket(db, text);
-  addConversationMessage(db, { role: "user", content: text, source: "chat" });
+  inputPacket.session = {
+    id: session.id,
+    title: session.title,
+    routeLabel: route.id,
+    routeTone: route.tone,
+    projectId: session.projectId
+  };
+  addProcessStep(trace, "Input normalized");
+  addSessionMessage(db, { role: "user", content: text, source: "chat", sessionId: session.id, routeLabel: route.id, projectId: session.projectId });
   const parsed = await parseWithFallback(text, db, inputPacket);
+  addProcessStep(trace, "Memory and action proposal prepared", "done", `${parsed.proposedActions?.length || 0} proposed action(s)`);
   const proposal = {
     id: crypto.randomUUID(),
     text,
@@ -23,18 +46,24 @@ export async function proposeFromChat(db, body) {
     proposedActions: parsed.proposedActions,
     parser: parsed.parser || "local",
     inputPacket,
+    sessionId: session.id,
+    routeLabel: route.id,
+    processTraceId: trace.id,
     createdAt: new Date().toISOString()
   };
 
-  addConversationMessage(db, { role: "assistant", content: proposal.response, source: proposal.parser === "deepseek" ? "deepseek" : "local_parser" });
+  addSessionMessage(db, { role: "assistant", content: proposal.response, source: proposal.parser === "deepseek" ? "deepseek" : "local_parser", sessionId: session.id, routeLabel: route.id, projectId: session.projectId });
   addMemoryEvent(db, {
     type: "chat_interaction",
     summary: proposal.response,
     source: "chat",
     userText: text,
     actions: parsed.proposedActions,
-    metadata: { proposalId: proposal.id, confidence: parsed.confidence, parser: proposal.parser, inputPacket }
+    metadata: { proposalId: proposal.id, confidence: parsed.confidence, parser: proposal.parser, inputPacket, sessionId: session.id, routeLabel: route.id, projectId: session.projectId }
   });
+  touchSession(db, session.id, { titleHint: text, routeLabel: route.id, projectId: session.projectId });
+  addProcessStep(trace, "Response generated");
+  finishProcessTrace(trace);
   if (inputPacket.normalizerUsage) addUsageEvent(db, { ...inputPacket.normalizerUsage, parser: "input_processor" });
   addUsageEvent(db, parsed.usage ? { ...parsed.usage, parser: proposal.parser } : {
     provider: "local",

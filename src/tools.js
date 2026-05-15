@@ -1,4 +1,5 @@
 import { createReminder } from "./reminders.js";
+import { updateContext } from "./context.js";
 import { updateStatus } from "./status.js";
 import { addActionEvent, addMemoryEvent, updateWorkingMemory, upsertProject } from "./memory.js";
 
@@ -8,6 +9,17 @@ export function executeTool(db, action, source = "chat") {
 
   if (tool === "update_status") {
     result = updateStatus(db, args);
+  } else if (tool === "update_context") {
+    result = updateContext(db, args);
+    addMemoryEvent(db, {
+      type: "context_update",
+      summary: [
+        args.locationTag ? `location=${args.locationTag}` : "",
+        args.weather ? `weather=${args.weather}` : ""
+      ].filter(Boolean).join(", ") || "Context updated",
+      source,
+      metadata: { contextPatch: args }
+    });
   } else if (tool === "create_reminder") {
     result = createReminder(db, { kind: "status", ...args, statusIds: args.statusIds?.length ? args.statusIds : db.activeStatusId ? [db.activeStatusId] : [] });
   } else if (tool === "create_deadline") {
