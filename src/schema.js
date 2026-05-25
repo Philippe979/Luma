@@ -31,9 +31,21 @@ export const defaultDb = {
   actionEvents: [],
   conversations: [],
   projects: [],
+  fileMemories: [],
   usageEvents: [],
   brainEvents: [],
   trainingSamples: [],
+  memoryIndex: {
+    provider: "scoped-rag",
+    state: "planned",
+    lastIndexedAt: null,
+    chunkCount: 0,
+    rules: {
+      defaultRetrieve: false,
+      excludeDeleted: true,
+      requireSessionOrProjectScope: true
+    }
+  },
   workingMemory: {
     activeProject: null,
     lastProgress: null,

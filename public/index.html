@@ -28,8 +28,7 @@
         </header>
 
         <nav class="tabs" aria-label="Luma sections">
-          <button class="tab active" data-view="today" data-i18n="today">Today</button>
-          <button class="tab" data-view="setup" data-i18n="memory">Memory</button>
+          <button class="tab active" data-view="today">Chat</button>
           <button class="tab" data-view="usage" data-i18n="usage">Usage</button>
         </nav>
 
@@ -121,13 +120,16 @@
               </section>
 
               <form id="chatForm" class="chat-form">
+                <input id="fileInput" class="hidden-file-input" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.html,.css,.js,.ts,.jsx,.tsx,.py,.sql,.yml,.yaml,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
                 <textarea id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="Tell Luma what changed, what to remember, or what to do next."></textarea>
+                <button id="attachButton" type="button" aria-label="Attach file">Attach</button>
                 <button type="submit" aria-label="Send" data-i18n="send">Send</button>
+                <div id="fileQueue" class="file-queue"></div>
               </form>
 
               <div class="section-title action-title">
                 <h3 data-i18n="suggestedActions">Suggested Actions</h3>
-                <span class="pill">V2.1</span>
+                <span class="pill">V2.2</span>
               </div>
               <div id="suggestedActionList" class="action-card-grid"></div>
             </section>
@@ -388,6 +390,22 @@
               <span id="usageCallCount" class="pill">0</span>
             </div>
             <div id="usageList" class="usage-list"></div>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3>Capability Modes</h3>
+              <span id="capabilityCount" class="pill">0</span>
+            </div>
+            <div id="capabilityList" class="usage-list"></div>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3>Memory / RAG</h3>
+              <span id="memoryIndexState" class="pill">planned</span>
+            </div>
+            <div id="memoryIndexList" class="usage-list"></div>
           </section>
         </section>
       </section>

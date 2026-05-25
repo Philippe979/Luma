@@ -1,6 +1,7 @@
 import { readSecrets } from "./secrets.js";
 import { emptyWorkingMemory, projectWorkingMemory, recentMemory } from "./memory.js";
 import { inputNormalizationSystemPrompt } from "./input_prompt.js";
+import { isVisible } from "./lifecycle.js";
 
 const allowedTools = [
   "update_status",
@@ -145,7 +146,7 @@ export async function normalizeWithDeepSeek(text, db, inputPacket) {
 
 function scopedContext(db, inputPacket = null) {
   const session = inputPacket?.session || {};
-  const project = session.projectId ? (db.projects || []).find((item) => item.id === session.projectId) : null;
+  const project = session.projectId ? (db.projects || []).find((item) => item.id === session.projectId && isVisible(item)) : null;
   if (project) {
     return {
       workingMemory: projectWorkingMemory(project),
