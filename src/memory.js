@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { nowFeatures } from "./time.js";
+import { isVisible, softDeleteRecord, withLifecycle } from "./lifecycle.js";
 
 export function addConversationMessage(db, { role, content, source = "chat", conversationId = "default" }) {
   const message = {
@@ -15,9 +16,12 @@ export function addConversationMessage(db, { role, content, source = "chat", con
 }
 
 export function addMemoryEvent(db, { type, summary, source = "chat", userText = "", actions = [], metadata = {} }) {
-  const event = {
+  db.memoryEvents = db.memoryEvents || [];
+  const now = new Date().toISOString();
+  const event = withLifecycle({
     id: crypto.randomUUID(),
     type,
+    memoryType: metadata.memoryType || type || "conversation",
     summary,
     source,
     userText,
@@ -25,8 +29,8 @@ export function addMemoryEvent(db, { type, summary, source = "chat", userText = 
     metadata,
     context: nowFeatures(db),
     statusId: db.activeStatusId || null,
-    timestamp: new Date().toISOString()
-  };
+    timestamp: now
+  }, now);
   db.memoryEvents.push(event);
   return event;
 }
@@ -85,7 +89,7 @@ export function upsertProject(db, { project, progress = "", nextStep = null, sta
   const id = slug(project);
   const existing = (db.projects || []).find((item) => item.id === id);
   const now = new Date().toISOString();
-  const entry = {
+  const entry = withLifecycle({
     id,
     name: project,
     state,
@@ -102,7 +106,7 @@ export function upsertProject(db, { project, progress = "", nextStep = null, sta
         timestamp: now
       }
     ].filter((item) => item.progress || item.nextStep || item.state)
-  };
+  }, now);
 
   if (existing) Object.assign(existing, entry);
   else db.projects.push(entry);
@@ -111,7 +115,7 @@ export function upsertProject(db, { project, progress = "", nextStep = null, sta
 }
 
 export function recentMemory(db, limit = 6, scope = {}) {
-  let events = [...(db.memoryEvents || [])];
+  let events = [...(db.memoryEvents || [])].filter(isVisible);
   if (scope.projectId || scope.projectName) {
     events = events.filter((event) => {
       const metadata = event.metadata || {};
@@ -140,7 +144,7 @@ export function suggestedActions(db, scope = {}) {
   if (!scope.allowGlobalPatterns) return suggestions.slice(0, 4);
 
   const projectCounts = {};
-  for (const event of db.memoryEvents || []) {
+  for (const event of (db.memoryEvents || []).filter(isVisible)) {
     const project = event.metadata?.project;
     if (project) projectCounts[project] = (projectCounts[project] || 0) + 1;
   }
@@ -156,6 +160,16 @@ export function suggestedActions(db, scope = {}) {
   }
 
   return suggestions.slice(0, 4);
+}
+
+export function softDeleteMemoryEvent(db, id, options = {}) {
+  const event = (db.memoryEvents || []).find((item) => item.id === id);
+  return softDeleteRecord(event, options);
+}
+
+export function softDeleteProject(db, id, options = {}) {
+  const project = (db.projects || []).find((item) => item.id === id);
+  return softDeleteRecord(project, options);
 }
 
 function slug(value) {

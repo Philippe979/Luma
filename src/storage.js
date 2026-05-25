@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { config } from "./config.js";
 import { defaultDb, seedStatuses } from "./schema.js";
 import { ensurePostgresSchema, postgresEnabled, readStateFromPostgres, saveStateToPostgres } from "./postgres.js";
+import { withLifecycle } from "./lifecycle.js";
 
 export async function ensureDb() {
   if (postgresEnabled()) {
@@ -44,16 +45,21 @@ function normalizeDb(db) {
     statuses: db.statuses?.length ? db.statuses : seedStatuses,
     reminders: db.reminders || [],
     history: db.history || [],
-    sessions: db.sessions || [],
+    sessions: (db.sessions || []).map((session) => withLifecycle(session, session.createdAt || session.updatedAt || new Date().toISOString())),
     activeSessionId: db.activeSessionId || null,
     processTraces: db.processTraces || [],
-    memoryEvents: db.memoryEvents || [],
+    memoryEvents: (db.memoryEvents || []).map((event) => withLifecycle({
+      memoryType: event.memoryType || event.type || "conversation",
+      ...event
+    }, event.createdAt || event.timestamp || new Date().toISOString())),
     actionEvents: db.actionEvents || [],
     conversations: db.conversations || [],
-    projects: db.projects || [],
+    projects: (db.projects || []).map((project) => withLifecycle(project, project.createdAt || project.updatedAt || new Date().toISOString())),
+    fileMemories: (db.fileMemories || []).map((file) => withLifecycle(file, file.createdAt || file.updatedAt || new Date().toISOString())),
     usageEvents: db.usageEvents || [],
     brainEvents: db.brainEvents || [],
     trainingSamples: db.trainingSamples || [],
+    memoryIndex: { ...defaultDb.memoryIndex, ...(db.memoryIndex || {}) },
     workingMemory: { ...defaultDb.workingMemory, ...(db.workingMemory || {}) },
     modes: db.modes || [],
     actionCards: db.actionCards?.length ? db.actionCards : defaultDb.actionCards,

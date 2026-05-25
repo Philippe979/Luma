@@ -8,6 +8,8 @@
     "check": "node scripts/check-syntax.js"
   },
   "dependencies": {
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^1.1.1",
     "pg": "^8.13.1"
   }
 }

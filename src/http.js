@@ -6,7 +6,7 @@ import { config } from "./config.js";
 export async function readJson(req) {
   const chunks = [];
   let size = 0;
-  const maxBytes = 256 * 1024;
+  const maxBytes = 5 * 1024 * 1024;
   for await (const chunk of req) {
     size += chunk.length;
     if (size > maxBytes) throw new Error("Request body is too large. Please split long text into smaller parts.");

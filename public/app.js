@@ -4,6 +4,7 @@ let pendingProposal = null;
 let activeRouteLabel = "general";
 let lastRenderedSessionId = null;
 let currentSessionStartedAt = new Date().toISOString();
+let pendingFiles = [];
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -456,7 +457,8 @@ function renderChatWorkspace() {
   for (const message of messages) {
     const bubble = document.createElement("div");
     bubble.className = `message ${message.role === "user" ? "user" : "assistant"}`;
-    bubble.textContent = message.content;
+    if (message.role === "assistant") renderRichMessage(bubble, message.content);
+    else bubble.textContent = message.content;
     $("chatMessages").append(bubble);
   }
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
@@ -502,7 +504,15 @@ function renderConversationArchive() {
     title.textContent = session.title;
     const time = document.createElement("small");
     time.textContent = [formatShortTime(session.lastMessageAt || session.updatedAt), `${session.messageCount} messages`].filter(Boolean).join(" · ");
-    item.append(title, time);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "mini-delete";
+    del.textContent = "Delete";
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteSession(session.id, session.title);
+    });
+    item.append(title, time, del);
     item.addEventListener("click", () => switchSession(session.id));
     item.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") switchSession(session.id);
@@ -630,6 +640,15 @@ function renderMemoryWorkspace() {
     row.innerHTML = `<strong></strong><small></small>`;
     row.querySelector("strong").textContent = project.name;
     row.querySelector("small").textContent = [project.state, project.nextStep ? `next: ${project.nextStep}` : ""].filter(Boolean).join(" · ");
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "mini-delete";
+    del.textContent = "Delete";
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteProject(project.id, project.name);
+    });
+    row.append(del);
     row.addEventListener("click", () => activateProject(project.id));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") activateProject(project.id);
@@ -701,6 +720,118 @@ function renderUsage() {
     row.querySelector("small").textContent = `${item.reason} · ${new Date(item.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
     row.querySelector("span").textContent = `${item.totalTokens} tok · $${Number(item.estimatedCostUsd || 0).toFixed(6)}`;
     $("usageList").append(row);
+  }
+
+  renderCapabilities();
+  renderMemoryIndex();
+}
+
+function renderRichMessage(node, content) {
+  node.innerHTML = safeMarkdown(content);
+}
+
+function safeMarkdown(content) {
+  const escaped = escapeHtml(String(content || ""));
+  const lines = escaped.split(/\r?\n/);
+  const html = [];
+  let inList = false;
+  let inCode = false;
+  let code = [];
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      if (inCode) {
+        html.push(`<pre><code>${code.join("\n")}</code></pre>`);
+        code = [];
+        inCode = false;
+      } else {
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      code.push(line);
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*]\s+(.+)/);
+    if (bullet) {
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      html.push(`<li>${inlineMarkdown(bullet[1])}</li>`);
+      continue;
+    }
+    if (inList) {
+      html.push("</ul>");
+      inList = false;
+    }
+    if (!line.trim()) continue;
+    html.push(`<p>${inlineMarkdown(line)}</p>`);
+  }
+  if (inList) html.push("</ul>");
+  if (inCode) html.push(`<pre><code>${code.join("\n")}</code></pre>`);
+  return html.join("");
+}
+
+function inlineMarkdown(text) {
+  return String(text)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function renderCapabilities() {
+  const capabilities = state.capabilities?.capabilities || [];
+  $("capabilityCount").textContent = `${state.capabilities?.available || 0}/${state.capabilities?.total || 0}`;
+  $("capabilityList").innerHTML = "";
+  if (!capabilities.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty quiet-empty";
+    empty.textContent = "No capabilities registered.";
+    $("capabilityList").append(empty);
+    return;
+  }
+  for (const capability of capabilities) {
+    const row = document.createElement("div");
+    row.className = "usage-row";
+    row.innerHTML = `<strong></strong><small></small><span></span>`;
+    row.querySelector("strong").textContent = capability.id;
+    row.querySelector("small").textContent = capability.description;
+    row.querySelector("span").textContent = `${capability.state} · ${capability.adapter}`;
+    $("capabilityList").append(row);
+  }
+}
+
+function renderMemoryIndex() {
+  const index = state.memoryIndex || {};
+  $("memoryIndexState").textContent = index.state || "planned";
+  $("memoryIndexList").innerHTML = "";
+  const rules = index.rules || {};
+  const rows = [
+    ["Provider", index.provider || "scoped-rag"],
+    ["Chunks", String(index.chunkCount || 0)],
+    ["Default retrieve", rules.defaultRetrieve ? "enabled" : "disabled"],
+    ["Exclude deleted", rules.excludeDeleted ? "yes" : "no"],
+    ["Scope required", rules.requireSessionOrProjectScope ? "yes" : "no"]
+  ];
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "usage-row";
+    row.innerHTML = `<strong></strong><small></small><span></span>`;
+    row.querySelector("strong").textContent = label;
+    row.querySelector("small").textContent = value;
+    row.querySelector("span").textContent = "memory";
+    $("memoryIndexList").append(row);
   }
 }
 
@@ -894,6 +1025,20 @@ async function deleteReminder(id, text) {
   await load(result.state);
 }
 
+async function deleteProject(id, name) {
+  if (!confirm(`Delete project?\n${name}`)) return;
+  const result = await api(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+  lastReceiptNote = "Project moved to deleted items.";
+  await load(result.state);
+}
+
+async function deleteSession(id, title) {
+  if (!confirm(`Delete session?\n${title}`)) return;
+  const result = await api(`/api/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  lastReceiptNote = "Session moved to deleted items.";
+  await load(result.state);
+}
+
 function switchView(name) {
   for (const view of $$(".view")) view.classList.toggle("active", view.id === `${name}View`);
   for (const tab of $$(".tab")) tab.classList.toggle("active", tab.dataset.view === name);
@@ -907,6 +1052,69 @@ function showNotice(text) {
     $("notice").classList.add("hidden");
     lastReceiptNote = "";
   }, 2800);
+}
+
+function addPendingFiles(fileList) {
+  const files = [...(fileList || [])].filter(Boolean);
+  pendingFiles.push(...files);
+  renderFileQueue();
+}
+
+function renderFileQueue() {
+  $("fileQueue").innerHTML = "";
+  $("fileQueue").classList.toggle("hidden", !pendingFiles.length);
+  pendingFiles.forEach((file, index) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "file-chip";
+    item.textContent = `${file.name} · ${formatBytes(file.size)}`;
+    item.addEventListener("click", () => {
+      pendingFiles = pendingFiles.filter((_, fileIndex) => fileIndex !== index);
+      renderFileQueue();
+    });
+    $("fileQueue").append(item);
+  });
+}
+
+async function uploadPendingFiles() {
+  const files = pendingFiles;
+  pendingFiles = [];
+  renderFileQueue();
+  const results = [];
+  for (const file of files) {
+    const dataUrl = await readFileAsDataUrl(file);
+    const result = await api("/api/files/upload", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        dataUrl,
+        sessionId: state.activeSessionId,
+        routeLabel: activeRouteLabel || state.activeSession?.routeLabel || "general",
+        projectId: state.activeSession?.projectId || null
+      })
+    });
+    results.push(result);
+  }
+  if (results.length) lastReceiptNote = `${results.length} file${results.length > 1 ? "s" : ""} read and attached to this session.`;
+  return results;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function showAlert(alert) {
@@ -1000,10 +1208,28 @@ $("reminderKindInput").addEventListener("change", updateReminderFieldVisibility)
 
 $("notifyButton").addEventListener("click", () => jumpToSetup("alertsPanel"));
 
+$("attachButton").addEventListener("click", () => $("fileInput").click());
+$("fileInput").addEventListener("change", (event) => {
+  addPendingFiles(event.target.files);
+  event.target.value = "";
+});
+$("chatForm").addEventListener("dragover", (event) => {
+  event.preventDefault();
+  $("chatForm").classList.add("drag-active");
+});
+$("chatForm").addEventListener("dragleave", () => {
+  $("chatForm").classList.remove("drag-active");
+});
+$("chatForm").addEventListener("drop", (event) => {
+  event.preventDefault();
+  $("chatForm").classList.remove("drag-active");
+  addPendingFiles(event.dataTransfer.files);
+});
+
 $("chatForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = $("chatInput").value.trim();
-  if (!text) return;
+  if (!text && !pendingFiles.length) return;
   $("chatInput").value = "";
   const thinking = document.createElement("div");
   thinking.className = "message assistant thinking-message";
@@ -1011,6 +1237,11 @@ $("chatForm").addEventListener("submit", async (event) => {
   $("chatMessages").append(thinking);
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
   try {
+    const uploaded = await uploadPendingFiles();
+    if (!text && uploaded.length) {
+      await load(uploaded.at(-1).state);
+      return;
+    }
     const result = await api("/api/chat/propose", {
       method: "POST",
       body: JSON.stringify({

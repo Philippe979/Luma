@@ -7,14 +7,17 @@ import { activeStatus, predictStatus, statusReceipt, updateStatus } from "./stat
 import { activeReminders, createReminder, deleteReminder, dueAlerts, markAlertFired, updateReminder } from "./reminders.js";
 import { learningProgress } from "./learning.js";
 import { executeProposal, proposeFromChat, trainBrainInBackground } from "./agent.js";
-import { clearWorkingMemory, emptyWorkingMemory, projectWorkingMemory, recentMemory, suggestedActions, upsertProject } from "./memory.js";
+import { clearWorkingMemory, emptyWorkingMemory, projectWorkingMemory, recentMemory, softDeleteMemoryEvent, softDeleteProject, suggestedActions, upsertProject } from "./memory.js";
 import { publicLlmState, readSecrets, saveSecrets } from "./secrets.js";
 import { usageSummary } from "./usage.js";
 import { brainState } from "./brain_service.js";
 import { optimizerState } from "./optimizer.js";
 import { entryRoutes } from "./entry_routes.js";
-import { createSession, activateFreshSession, activateSession, ensureActiveSession, recentSessionsForRoute, sessionMessages } from "./sessions.js";
+import { createSession, activateFreshSession, activateSession, ensureActiveSession, recentSessionsForRoute, sessionMessages, softDeleteSession } from "./sessions.js";
 import { latestProcessTrace } from "./process_trace.js";
+import { capabilitySummary } from "./capabilities.js";
+import { isVisible } from "./lifecycle.js";
+import { readUploadedFile } from "./file_service.js";
 
 export function createRouter() {
   return async function router(req, res, url) {
@@ -61,6 +64,27 @@ export function createRouter() {
       const reminder = deleteReminder(db, id);
       await saveDb(db);
       return sendJson(res, 200, { ok: true, reminder, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "DELETE" && url.pathname.startsWith("/api/projects/")) {
+      const id = decodeURIComponent(url.pathname.split("/").pop());
+      const project = softDeleteProject(db, id);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, project, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "DELETE" && url.pathname.startsWith("/api/sessions/")) {
+      const id = decodeURIComponent(url.pathname.split("/").pop());
+      const session = softDeleteSession(db, id);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, session, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "DELETE" && url.pathname.startsWith("/api/memory-events/")) {
+      const id = decodeURIComponent(url.pathname.split("/").pop());
+      const memory = softDeleteMemoryEvent(db, id);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, memory, state: statePayload(db, secrets) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/settings") {
@@ -124,7 +148,7 @@ export function createRouter() {
 
     if (req.method === "POST" && url.pathname === "/api/projects/active") {
       const body = await readJson(req);
-      const project = (db.projects || []).find((item) => item.id === body.projectId);
+      const project = (db.projects || []).find((item) => item.id === body.projectId && isVisible(item));
       if (!project) return sendJson(res, 404, { error: "Project not found." });
       const session = createSession(db, {
         title: project.name,
@@ -151,6 +175,12 @@ export function createRouter() {
       const results = executeProposal(db, await readJson(req));
       await saveDb(db);
       return sendJson(res, 200, { ok: true, results, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/files/upload") {
+      const file = await readUploadedFile(db, await readJson(req));
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, file, state: statePayload(db, secrets) });
     }
 
     if (req.method === "GET" && url.pathname === "/api/alerts/due") {
@@ -201,13 +231,15 @@ function statePayload(db, secrets = null) {
     latestProcess: latestProcessTrace(db, activeSession.id),
     activeReminders: activeReminders(db),
     dueAlerts: dueAlerts(db),
-    memoryEvents: db.memoryEvents || [],
+    memoryEvents: (db.memoryEvents || []).filter(isVisible),
     actionEvents: db.actionEvents || [],
     conversations: db.conversations || [],
-    projects: db.projects || [],
+    projects: (db.projects || []).filter(isVisible),
     usageEvents: db.usageEvents || [],
     brainEvents: db.brainEvents || [],
     trainingSamples: db.trainingSamples || [],
+    fileMemories: (db.fileMemories || []).filter(isVisible),
+    memoryIndex: db.memoryIndex || {},
     usage: usageSummary(db),
     workingMemory: memoryScope.workingMemory,
     recentMemory: memoryScope.recentMemory,
@@ -222,12 +254,13 @@ function statePayload(db, secrets = null) {
     localLlm: brainState(),
     brain: brainState(),
     optimizer: optimizerState(),
+    capabilities: capabilitySummary(),
     lanUrls: clientIpList().map((ip) => `http://${ip}:${config.port}`)
   };
 }
 
 function sessionMemoryScope(db, session) {
-  const project = session?.projectId ? (db.projects || []).find((item) => item.id === session.projectId) : null;
+  const project = session?.projectId ? (db.projects || []).find((item) => item.id === session.projectId && isVisible(item)) : null;
   if (!project) {
     return {
       workingMemory: emptyWorkingMemory(),

@@ -11,6 +11,7 @@ import { addUsageEvent } from "./usage.js";
 import { trainWithBrain } from "./brain_service.js";
 import { buildInputPacket } from "./input_prompt.js";
 import { readDb, saveDb } from "./storage.js";
+import { isVisible } from "./lifecycle.js";
 
 export async function proposeFromChat(db, body) {
   const text = String(body.text || "").trim();
@@ -178,14 +179,14 @@ function inferMemoryTitle(text) {
 }
 
 function scopedDbForSession(db, session) {
-  const project = session.projectId ? (db.projects || []).find((item) => item.id === session.projectId) : null;
+  const project = session.projectId ? (db.projects || []).find((item) => item.id === session.projectId && isVisible(item)) : null;
   const scoped = {
     ...db,
     projects: project ? [project] : [],
     workingMemory: project ? projectWorkingMemory(project) : emptyWorkingMemory(),
     memoryEvents: project
-      ? (db.memoryEvents || []).filter((event) => event.metadata?.project === project.name || event.metadata?.projectId === project.id)
-      : (db.memoryEvents || []).filter((event) => event.metadata?.sessionId === session.id)
+      ? (db.memoryEvents || []).filter((event) => isVisible(event) && (event.metadata?.project === project.name || event.metadata?.projectId === project.id))
+      : (db.memoryEvents || []).filter((event) => isVisible(event) && event.metadata?.sessionId === session.id)
   };
   return scoped;
 }
