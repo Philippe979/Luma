@@ -25,7 +25,7 @@ const i18n = {
     browserAlertsUnavailable: "Browser notifications are not available.",
     cancel: "Cancel",
     chatGreeting: "How can I help you today?",
-    chatPlaceholder: "Tell Luma what changed, what to remember, or what to do next.",
+    chatPlaceholder: "Ask Luma to write, plan, analyze, read files, or remember something.",
     confirmActions: "Confirm",
     conversationArchive: "Archive",
     codexCopied: "Codex context copied.",
@@ -59,7 +59,7 @@ const i18n = {
     languageLayerSaved: "Language layer saved.",
     learningProgress: "Learning Progress",
     localAccess: "Local Access",
-    localButler: "Local Butler",
+    localButler: "Workflow Agent",
     locating: "Locating",
     location: "Location",
     locationDenied: "Location permission was not granted.",
@@ -447,7 +447,7 @@ function renderChatWorkspace() {
   const messages = (state.sessionMessages || []).slice(-24);
   if (!messages.length) {
     const starter = document.createElement("div");
-    starter.className = "message assistant";
+    starter.className = "message assistant assistant-document";
     starter.textContent = "Hi, I am Luma.";
     $("chatMessages").append(starter);
     renderProcessPanel();
@@ -456,9 +456,16 @@ function renderChatWorkspace() {
 
   for (const message of messages) {
     const bubble = document.createElement("div");
-    bubble.className = `message ${message.role === "user" ? "user" : "assistant"}`;
-    if (message.role === "assistant") renderRichMessage(bubble, message.content);
-    else bubble.textContent = message.content;
+    const outputType = message.outputType || message.metadata?.outputType || inferMessageOutputType(message.content);
+    bubble.className = `message ${message.role === "user" ? "user" : "assistant"} ${message.role === "assistant" ? `assistant-document output-${outputType}` : ""}`;
+    if (message.role === "assistant") {
+      renderRichMessage(bubble, message.metadata?.finalAnswer || message.content, {
+        intent: message.intent || message.metadata?.intent,
+        outputType
+      });
+    } else {
+      bubble.textContent = message.content;
+    }
     $("chatMessages").append(bubble);
   }
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
@@ -726,7 +733,9 @@ function renderUsage() {
   renderMemoryIndex();
 }
 
-function renderRichMessage(node, content) {
+function renderRichMessage(node, content, meta = {}) {
+  node.dataset.intent = meta.intent || "direct_answer";
+  node.dataset.outputType = meta.outputType || inferMessageOutputType(content);
   node.innerHTML = safeMarkdown(content);
 }
 
@@ -734,12 +743,25 @@ function safeMarkdown(content) {
   const escaped = escapeHtml(String(content || ""));
   const lines = escaped.split(/\r?\n/);
   const html = [];
-  let inList = false;
+  let listType = null;
   let inCode = false;
   let code = [];
+  let table = [];
 
+  const closeList = () => {
+    if (!listType) return;
+    html.push(`</${listType}>`);
+    listType = null;
+  };
+  const flushTable = () => {
+    if (!table.length) return;
+    html.push(renderMarkdownTable(table));
+    table = [];
+  };
   for (const line of lines) {
     if (line.trim().startsWith("```")) {
+      flushTable();
+      closeList();
       if (inCode) {
         html.push(`<pre><code>${code.join("\n")}</code></pre>`);
         code = [];
@@ -753,23 +775,53 @@ function safeMarkdown(content) {
       code.push(line);
       continue;
     }
+    if (isTableLine(line)) {
+      closeList();
+      table.push(line);
+      continue;
+    }
+    flushTable();
     const bullet = line.match(/^\s*[-*]\s+(.+)/);
     if (bullet) {
-      if (!inList) {
+      if (listType !== "ul") {
+        closeList();
         html.push("<ul>");
-        inList = true;
+        listType = "ul";
       }
       html.push(`<li>${inlineMarkdown(bullet[1])}</li>`);
       continue;
     }
-    if (inList) {
-      html.push("</ul>");
-      inList = false;
+    const numbered = line.match(/^\s*(\d+)[.)]\s+(.+)/);
+    if (numbered) {
+      if (listType !== "ol") {
+        closeList();
+        html.push("<ol>");
+        listType = "ol";
+      }
+      html.push(`<li>${inlineMarkdown(numbered[2])}</li>`);
+      continue;
     }
+    closeList();
     if (!line.trim()) continue;
+    const heading = line.match(/^(#{1,4})\s+(.+)/);
+    if (heading) {
+      const level = Math.min(4, heading[1].length + 1);
+      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+    const quote = line.match(/^&gt;\s+(.+)/);
+    if (quote) {
+      html.push(`<blockquote>${inlineMarkdown(quote[1])}</blockquote>`);
+      continue;
+    }
+    if (/^\s*---+\s*$/.test(line)) {
+      html.push("<hr>");
+      continue;
+    }
     html.push(`<p>${inlineMarkdown(line)}</p>`);
   }
-  if (inList) html.push("</ul>");
+  flushTable();
+  closeList();
   if (inCode) html.push(`<pre><code>${code.join("\n")}</code></pre>`);
   return html.join("");
 }
@@ -788,6 +840,30 @@ function escapeHtml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function inferMessageOutputType(content) {
+  const value = String(content || "");
+  if (/```/.test(value)) return "code";
+  if (/\|.+\|/.test(value) && /\n\s*\|?\s*[-:]+\s*\|/.test(value)) return "table";
+  if (/\$\$|\\\(|\\\[/.test(value)) return "math";
+  if (/^#{1,6}\s+/m.test(value) || /^\s*\d+[.)]\s+/m.test(value) || /^\s*[-*]\s+/m.test(value)) return "document";
+  return value.length > 420 ? "document" : "chat";
+}
+
+function isTableLine(line) {
+  return /^\s*\|.+\|\s*$/.test(line);
+}
+
+function renderMarkdownTable(rows) {
+  if (rows.length < 2 || !/^\s*\|?\s*[-:| ]+\s*\|?\s*$/.test(rows[1])) {
+    return rows.map((row) => `<p>${inlineMarkdown(row)}</p>`).join("");
+  }
+  const cells = rows.map((row) => row.trim().replace(/^\||\|$/g, "").split("|").map((cell) => inlineMarkdown(cell.trim())));
+  const [head, , ...body] = cells;
+  const header = `<thead><tr>${head.map((cell) => `<th>${cell}</th>`).join("")}</tr></thead>`;
+  const bodyHtml = `<tbody>${body.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  return `<div class="table-wrap"><table>${header}${bodyHtml}</table></div>`;
 }
 
 function renderCapabilities() {
@@ -1232,8 +1308,8 @@ $("chatForm").addEventListener("submit", async (event) => {
   if (!text && !pendingFiles.length) return;
   $("chatInput").value = "";
   const thinking = document.createElement("div");
-  thinking.className = "message assistant thinking-message";
-  thinking.textContent = "Luma is thinking...";
+  thinking.className = "message assistant assistant-document thinking-message";
+  thinking.textContent = "Luma is working on the answer...";
   $("chatMessages").append(thinking);
   $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
   try {

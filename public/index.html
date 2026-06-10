@@ -21,7 +21,7 @@
       <section class="panel">
         <header class="topbar">
           <div>
-            <p class="eyebrow" data-i18n="localButler">Local Butler</p>
+            <p class="eyebrow" data-i18n="localButler">Workflow Agent</p>
             <h1>Luma</h1>
           </div>
           <button id="refreshButton" class="icon-button" title="Refresh" data-i18n="refresh">Refresh</button>
@@ -36,7 +36,7 @@
         <section id="alertBanner" class="alert-banner hidden"></section>
 
         <section id="todayView" class="view active">
-          <section class="ambient-bar">
+          <section class="ambient-bar v23-retired">
             <span class="live-dot"></span>
             <strong id="ambientStatus">Status unknown</strong>
             <span id="ambientTime">--:--</span>
@@ -59,11 +59,11 @@
               </div>
               <div id="sessionList" class="session-list"></div>
 
-              <div class="section-title side-title">
+              <div class="section-title side-title v23-retired">
                 <h3>Today</h3>
                 <span id="reminderCount" class="pill">0</span>
               </div>
-              <div id="reminderList" class="reminder-list"></div>
+              <div id="reminderList" class="reminder-list v23-retired"></div>
 
               <div class="section-title side-title">
                 <h3 data-i18n="projects">Projects</h3>
@@ -91,7 +91,7 @@
                 <p class="luma-presence">Hi, I am Luma.</p>
               </div>
 
-              <section id="contextReceipt" class="context-receipt">
+              <section id="contextReceipt" class="context-receipt v23-retired">
                 <div>
                   <span id="contextReceiptState" class="receipt-dot"></span>
                   <strong>Context confirmed</strong>
@@ -121,7 +121,7 @@
 
               <form id="chatForm" class="chat-form">
                 <input id="fileInput" class="hidden-file-input" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.html,.css,.js,.ts,.jsx,.tsx,.py,.sql,.yml,.yaml,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-                <textarea id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="Tell Luma what changed, what to remember, or what to do next."></textarea>
+                <textarea id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="Ask Luma to write, plan, analyze, read files, or remember something."></textarea>
                 <button id="attachButton" type="button" aria-label="Attach file">Attach</button>
                 <button type="submit" aria-label="Send" data-i18n="send">Send</button>
                 <div id="fileQueue" class="file-queue"></div>
@@ -129,13 +129,13 @@
 
               <div class="section-title action-title">
                 <h3 data-i18n="suggestedActions">Suggested Actions</h3>
-                <span class="pill">V2.2</span>
+                <span class="pill">V2.3</span>
               </div>
               <div id="suggestedActionList" class="action-card-grid"></div>
             </section>
           </section>
 
-          <section class="block quick-setup">
+          <section class="block quick-setup v23-retired">
             <div class="button-row">
               <button id="openStatusButton" class="secondary-button" data-i18n="updateStatus">Update Status</button>
               <button id="openReminderButton" class="secondary-button" data-i18n="addReminder">Add Reminder</button>
@@ -184,7 +184,7 @@
             </form>
           </section>
 
-          <section id="statusPanel" class="block">
+          <section id="statusPanel" class="block v23-retired">
             <div class="section-title">
               <h3 data-i18n="updateStatus">Update Status</h3>
               <span class="pill" data-i18n="manual">manual</span>
@@ -199,7 +199,7 @@
             </form>
           </section>
 
-          <section id="reminderPanel" class="block">
+          <section id="reminderPanel" class="block v23-retired">
             <div class="section-title">
               <h3 data-i18n="addReminder">Add Reminder</h3>
               <span id="reminderBindHint" class="pill">current status</span>
@@ -317,7 +317,7 @@
             </form>
           </section>
 
-          <section class="block compact">
+          <section class="block compact v23-retired">
             <div class="section-title">
               <h3 data-i18n="context">Context</h3>
               <button id="locateButton" class="text-button" data-i18n="useLocation">Use Location</button>
