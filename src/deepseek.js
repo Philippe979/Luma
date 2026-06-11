@@ -2,6 +2,7 @@ import { readSecrets } from "./secrets.js";
 import { emptyWorkingMemory, projectWorkingMemory, recentMemory } from "./memory.js";
 import { inputNormalizationSystemPrompt } from "./input_prompt.js";
 import { isVisible } from "./lifecycle.js";
+import { profilePromptBlock } from "./memory_architecture.js";
 
 const allowedTools = [
   "update_status",
@@ -175,11 +176,57 @@ export async function generateAnswerWithDeepSeek(text, db, inputPacket = null) {
   };
 }
 
+export async function extractMemoryArchitectureWithDeepSeek(db, { limit = 80 } = {}) {
+  const secrets = await readSecrets();
+  if (!secrets.deepseekApiKey) {
+    return {
+      source: "legacy_memory_migration",
+      model: "local_fallback",
+      status: "failed",
+      error: "DeepSeek API key is not configured.",
+      profileCandidates: [],
+      workflowCandidates: [],
+      environmentCandidates: []
+    };
+  }
+
+  const sources = legacyMemorySources(db, limit);
+  const response = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${secrets.deepseekApiKey}`
+    },
+    body: JSON.stringify({
+      model: secrets.deepseekModel || "deepseek-v4-flash",
+      messages: [
+        { role: "system", content: memoryExtractionPrompt() },
+        { role: "user", content: JSON.stringify({ sources }, null, 2) }
+      ],
+      response_format: { type: "json_object" },
+      thinking: { type: secrets.deepseekThinking || "disabled" },
+      max_tokens: 2600
+    })
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`DeepSeek memory extraction failed: ${response.status} ${detail.slice(0, 240)}`);
+  }
+  const payload = await response.json();
+  const parsed = JSON.parse(payload.choices?.[0]?.message?.content || "{}");
+  return normalizeMemoryExtraction(parsed, {
+    model: secrets.deepseekModel || "deepseek-v4-flash",
+    sourceIds: sources.map((source) => source.id)
+  });
+}
+
 function systemPrompt(db, inputPacket = null) {
   const scoped = scopedContext(db, inputPacket);
+  const routeScope = inputPacket?.session?.routeLabel || "global";
   const context = {
     activeStatus: db.activeStatusId,
     context: db.context,
+    profileMemory: profilePromptBlock(db, { scope: routeScope }),
     workingMemory: scoped.workingMemory,
     projects: scoped.projects,
     recentMemory: scoped.recentMemory,
@@ -224,6 +271,8 @@ Rules:
 - Do not save greetings such as "hi", "hello", or "welcome" as memory.
 - If the user says the result is missing, invisible, or asks you to regenerate, immediately provide the full result instead of apologizing only.
 - Avoid filler openers unless the full requested result follows in the same response.
+- Use active profile memory only for tone, communication style, and stable user preferences.
+- Do not treat profile memory as raw factual history. Do not summon raw old memories unless the user selected or requested them.
 
 Current local context:
 ${JSON.stringify(context)}`;
@@ -231,6 +280,8 @@ ${JSON.stringify(context)}`;
 
 function answerSystemPrompt(db, inputPacket = null) {
   const scoped = scopedContext(db, inputPacket);
+  const routeScope = inputPacket?.session?.routeLabel || "global";
+  const profileMemory = profilePromptBlock(db, { scope: routeScope });
   return `You are Luma's direct answer generator.
 Return valid JSON only.
 Your job is to answer the user's latest request with the actual useful result.
@@ -251,6 +302,12 @@ Rules:
 - Use the same language as the user unless the user asks otherwise.
 - Use concise markdown when it improves readability.
 - Do not create local memory/project/reminder actions in this mode.
+- Use active profile memory for tone, pacing, formatting preferences, and relationship warmth.
+- Do not use raw historical facts unless the user explicitly selected or asked for them.
+- Avoid customer-service tone, excessive apology, and hollow transition phrases.
+
+Active profile memory:
+${profileMemory}
 
 Scoped memory, only if relevant and explicitly connected to this session/project:
 ${JSON.stringify({
@@ -258,6 +315,60 @@ ${JSON.stringify({
     projects: scoped.projects,
     recentMemory: scoped.recentMemory
   })}`;
+}
+
+function memoryExtractionPrompt() {
+  return `You extract high-quality memory architecture candidates for Luma.
+Return valid JSON only.
+Do not copy raw conversations into memory. Extract compact, stable statements.
+
+Separate memory into three types:
+1. profileCandidates: communication style, tone, formatting preference, interaction rule, relationship term, work habit.
+2. workflowCandidates: reusable task workflows, successful task patterns, failure modes.
+3. environmentCandidates: long-term or phase-based context such as deadline pressure, research phase, debugging crisis, exam period.
+
+Rules:
+- Profile memory affects Luma's tone and communication style.
+- Workflow memory affects future task planning only.
+- Environment clusters describe current/recurring conditions and should not be used as raw facts.
+- Use "scope": "global" only for preferences that should apply everywhere. Use the routeLabel when the preference or relationship term belongs to a specific entry route.
+- Give confidence 0 to 1.
+- Put uncertain personal terms in needs-review style by giving confidence below 0.8.
+- Keep each statement short and reusable.
+
+Required JSON shape:
+{
+  "profileCandidates": [
+    {
+      "type": "communication_style|format_preference|interaction_rule|relationship_term|work_habit",
+      "statement": string,
+      "evidenceSummary": string,
+      "confidence": number,
+      "sourceIds": [],
+      "scope": "global|space:<id>"
+    }
+  ],
+  "workflowCandidates": [
+    {
+      "title": string,
+      "taskDomain": "writing|coding|research|planning|analysis|personal|general",
+      "subCluster": string,
+      "inputSummary": string,
+      "workflow": {"steps": [], "toolsUsed": [], "decisionPoints": [], "failureModes": []},
+      "outputSummary": string,
+      "qualitySignals": {"successScore": number, "preferenceAlignment": number}
+    }
+  ],
+  "environmentCandidates": [
+    {
+      "label": string,
+      "description": string,
+      "signals": [],
+      "confidence": number,
+      "activeScore": number
+    }
+  ]
+}`;
 }
 
 async function repairHollowResponse({ text, db, inputPacket, normalized, secrets }) {
@@ -403,6 +514,53 @@ function normalizeAnswer(parsed, fallbackInput) {
   };
 }
 
+function normalizeMemoryExtraction(parsed, { model, sourceIds }) {
+  return {
+    source: "legacy_memory_migration",
+    sourceIds,
+    model,
+    status: "completed",
+    profileCandidates: Array.isArray(parsed.profileCandidates)
+      ? parsed.profileCandidates.map((item) => ({
+        type: item.type || "communication_style",
+        statement: String(item.statement || "").trim(),
+        evidenceSummary: String(item.evidenceSummary || "").trim(),
+        confidence: clamp01(item.confidence ?? 0.5),
+        sourceIds: Array.isArray(item.sourceIds) ? item.sourceIds : [],
+        scope: item.scope || "global"
+      })).filter((item) => item.statement)
+      : [],
+    workflowCandidates: Array.isArray(parsed.workflowCandidates)
+      ? parsed.workflowCandidates.map((item) => ({
+        title: String(item.title || "Workflow candidate").trim(),
+        taskDomain: item.taskDomain || "general",
+        subCluster: item.subCluster || null,
+        inputSummary: String(item.inputSummary || "").trim(),
+        workflow: {
+          steps: Array.isArray(item.workflow?.steps) ? item.workflow.steps : [],
+          toolsUsed: Array.isArray(item.workflow?.toolsUsed) ? item.workflow.toolsUsed : [],
+          decisionPoints: Array.isArray(item.workflow?.decisionPoints) ? item.workflow.decisionPoints : [],
+          failureModes: Array.isArray(item.workflow?.failureModes) ? item.workflow.failureModes : []
+        },
+        outputSummary: String(item.outputSummary || "").trim(),
+        qualitySignals: {
+          successScore: clamp01(item.qualitySignals?.successScore ?? 0.5),
+          preferenceAlignment: clamp01(item.qualitySignals?.preferenceAlignment ?? 0.5)
+        }
+      })).filter((item) => item.inputSummary || item.workflow.steps.length)
+      : [],
+    environmentCandidates: Array.isArray(parsed.environmentCandidates)
+      ? parsed.environmentCandidates.map((item) => ({
+        label: String(item.label || "").trim(),
+        description: String(item.description || "").trim(),
+        signals: Array.isArray(item.signals) ? item.signals : [],
+        confidence: clamp01(item.confidence ?? 0.5),
+        activeScore: clamp01(item.activeScore ?? 0)
+      })).filter((item) => item.label)
+      : []
+  };
+}
+
 function buildResponse(actions) {
   if (!actions.length) return "I can save this as memory.";
   const labels = actions.map((action) => action.tool.replaceAll("_", " ")).join(", ");
@@ -437,6 +595,38 @@ function scopedConversation(db, inputPacket = null) {
     .map(({ role, content, source, timestamp }) => ({ role, content, source, timestamp }));
 }
 
+function legacyMemorySources(db, limit) {
+  const memory = (db.memoryEvents || []).filter(isVisible).slice(-Math.floor(limit / 2)).map((event) => ({
+    id: event.id,
+    type: "memory_event",
+    memoryType: event.memoryType || event.type,
+    summary: event.summary,
+    userText: event.userText,
+    metadata: event.metadata
+  }));
+  const conversations = (db.conversations || []).slice(-limit).map((message) => ({
+    id: message.id,
+    type: "conversation",
+    role: message.role,
+    content: message.content,
+    routeLabel: message.routeLabel,
+    intent: message.intent,
+    outputType: message.outputType,
+    timestamp: message.timestamp
+  }));
+  const projects = (db.projects || []).filter(isVisible).slice(-20).map((project) => ({
+    id: project.id,
+    type: "project",
+    name: project.name,
+    state: project.state,
+    goal: project.goal,
+    currentProgress: project.currentProgress,
+    nextStep: project.nextStep,
+    history: project.history
+  }));
+  return [...memory, ...conversations, ...projects];
+}
+
 function inferOutputType(text) {
   const value = String(text || "");
   if (/```/.test(value)) return "code";
@@ -444,6 +634,12 @@ function inferOutputType(text) {
   if (/\$\$|\\\(|\\\[/.test(value)) return "math";
   if (/^#{1,6}\s+/m.test(value) || /^\s*\d+[.\u3001]\s+/m.test(value) || /^\s*[-*]\s+/m.test(value)) return "document";
   return value.length > 420 ? "document" : "chat";
+}
+
+function clamp01(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(1, number));
 }
 
 function cleanTitle(value) {

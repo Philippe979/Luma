@@ -5,6 +5,9 @@ let activeRouteLabel = "general";
 let lastRenderedSessionId = null;
 let currentSessionStartedAt = new Date().toISOString();
 let pendingFiles = [];
+let pendingAnimatedMessageId = null;
+let typewriterTimer = null;
+const animatedMessageIds = new Set();
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -459,9 +462,16 @@ function renderChatWorkspace() {
     const outputType = message.outputType || message.metadata?.outputType || inferMessageOutputType(message.content);
     bubble.className = `message ${message.role === "user" ? "user" : "assistant"} ${message.role === "assistant" ? `assistant-document output-${outputType}` : ""}`;
     if (message.role === "assistant") {
-      renderRichMessage(bubble, message.metadata?.finalAnswer || message.content, {
+      const content = message.metadata?.finalAnswer || message.content;
+      const shouldAnimate = message.id && message.id === pendingAnimatedMessageId && !animatedMessageIds.has(message.id);
+      renderRichMessage(bubble, shouldAnimate ? "" : content, {
         intent: message.intent || message.metadata?.intent,
         outputType
+      });
+      if (shouldAnimate) animateRichMessage(bubble, content, {
+        intent: message.intent || message.metadata?.intent,
+        outputType,
+        messageId: message.id
       });
     } else {
       bubble.textContent = message.content;
@@ -739,6 +749,27 @@ function renderRichMessage(node, content, meta = {}) {
   node.innerHTML = safeMarkdown(content);
 }
 
+function animateRichMessage(node, content, meta = {}) {
+  const value = String(content || "");
+  const chunk = value.length > 1000 ? 8 : 4;
+  let index = 0;
+  if (typewriterTimer) {
+    clearInterval(typewriterTimer);
+    typewriterTimer = null;
+  }
+  animatedMessageIds.add(meta.messageId);
+  typewriterTimer = setInterval(() => {
+    index = Math.min(value.length, index + chunk);
+    renderRichMessage(node, value.slice(0, index), meta);
+    $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
+    if (index >= value.length) {
+      clearInterval(typewriterTimer);
+      typewriterTimer = null;
+      if (pendingAnimatedMessageId === meta.messageId) pendingAnimatedMessageId = null;
+    }
+  }, 18);
+}
+
 function safeMarkdown(content) {
   const escaped = escapeHtml(String(content || ""));
   const lines = escaped.split(/\r?\n/);
@@ -894,6 +925,11 @@ function renderMemoryIndex() {
   $("memoryIndexList").innerHTML = "";
   const rules = index.rules || {};
   const rows = [
+    ["Profile memory", `${state.profileMemory?.items?.filter((item) => item.state === "active").length || 0} active / ${state.profileMemory?.items?.length || 0} total`],
+    ["Workflow records", `${state.workflowRecords?.length || 0} draft records`],
+    ["Workflow clusters", `${state.workflowClusters?.length || 0} reserved`],
+    ["Environment clusters", `${state.environmentClusters?.length || 0} reserved`],
+    ["Extraction runs", `${state.memoryExtractionRuns?.length || 0} runs`],
     ["Provider", index.provider || "scoped-rag"],
     ["Chunks", String(index.chunkCount || 0)],
     ["Default retrieve", rules.defaultRetrieve ? "enabled" : "disabled"],
@@ -1327,6 +1363,7 @@ $("chatForm").addEventListener("submit", async (event) => {
       })
     });
     pendingProposal = result.proposal?.proposedActions?.length ? result.proposal : null;
+    pendingAnimatedMessageId = result.proposal?.assistantMessageId || null;
     await load(result.state);
   } catch (error) {
     thinking.textContent = error.message || "Luma could not process that message.";
@@ -1348,6 +1385,25 @@ $("confirmProposalButton").addEventListener("click", async () => {
 $("cancelProposalButton").addEventListener("click", () => {
   pendingProposal = null;
   renderProposal();
+});
+
+$("profileExtractButton").addEventListener("click", async () => {
+  const button = $("profileExtractButton");
+  button.disabled = true;
+  button.textContent = "Extracting...";
+  try {
+    const result = await api("/api/memory/extract-profile", {
+      method: "POST",
+      body: JSON.stringify({ limit: 120 })
+    });
+    await load(result.state);
+    showNotice("Profile memory extraction finished.");
+  } catch (error) {
+    showNotice(error.message || "Profile extraction failed.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Extract Profile";
+  }
 });
 
 $("enableAlertsButton").addEventListener("click", async () => {

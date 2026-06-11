@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { defaultDb, seedStatuses } from "./schema.js";
 import { ensurePostgresSchema, postgresEnabled, readStateFromPostgres, saveStateToPostgres } from "./postgres.js";
 import { withLifecycle } from "./lifecycle.js";
+import { normalizeEnvironmentCluster, normalizeExtractionRun, normalizeProfileMemory, normalizeWorkflowCluster, normalizeWorkflowRecord } from "./memory_architecture.js";
 
 export async function ensureDb() {
   if (postgresEnabled()) {
@@ -59,6 +60,11 @@ function normalizeDb(db) {
     usageEvents: db.usageEvents || [],
     brainEvents: db.brainEvents || [],
     trainingSamples: db.trainingSamples || [],
+    profileMemory: normalizeProfileMemory({ ...defaultDb.profileMemory, ...(db.profileMemory || {}) }),
+    workflowRecords: (db.workflowRecords || []).map((record) => normalizeWorkflowRecord(record, record.createdAt || record.updatedAt || new Date().toISOString())),
+    workflowClusters: (db.workflowClusters || []).map((cluster) => normalizeWorkflowCluster(cluster, cluster.createdAt || cluster.updatedAt || new Date().toISOString())),
+    environmentClusters: (db.environmentClusters || []).map((cluster) => normalizeEnvironmentCluster(cluster, cluster.createdAt || cluster.updatedAt || new Date().toISOString())),
+    memoryExtractionRuns: (db.memoryExtractionRuns || []).map((run) => normalizeExtractionRun(run, run.createdAt || run.updatedAt || new Date().toISOString())),
     memoryIndex: { ...defaultDb.memoryIndex, ...(db.memoryIndex || {}) },
     workingMemory: { ...defaultDb.workingMemory, ...(db.workingMemory || {}) },
     modes: db.modes || [],

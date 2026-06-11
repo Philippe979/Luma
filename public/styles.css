@@ -1,18 +1,18 @@
 :root {
   color-scheme: light;
-  --bg: #f5f6f4;
-  --panel: rgba(255, 255, 255, 0.9);
-  --text: #22272e;
-  --muted: #747b85;
-  --line: rgba(62, 72, 84, 0.15);
-  --accent: #2f7d73;
-  --accent-dark: #245f58;
-  --soft: rgba(228, 241, 238, 0.82);
+  --bg: #f7f5ff;
+  --panel: rgba(255, 255, 255, 0.92);
+  --text: #252432;
+  --muted: #77748a;
+  --line: rgba(108, 93, 160, 0.16);
+  --accent: #7c5cff;
+  --accent-dark: #5b3fd6;
+  --soft: rgba(238, 233, 255, 0.82);
   --paper: #fffefa;
   --paper-line: rgba(52, 64, 84, 0.12);
   --warn: #fff7e8;
   --danger: #8b2f2f;
-  --violet: #8f8ee8;
+  --violet: #a78bfa;
 }
 
 * {
@@ -24,7 +24,7 @@ body {
   min-height: 100vh;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
-  background: linear-gradient(135deg, #fafafa, #f2f5f1 58%, #eef3f2);
+  background: linear-gradient(180deg, #ffffff 0%, #faf9ff 54%, #f2efff 100%);
 }
 
 button,
@@ -67,7 +67,7 @@ button {
 .auth-card button {
   min-height: 42px;
   border-radius: 7px;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--violet));
   color: white;
   font-weight: 800;
 }
@@ -141,7 +141,7 @@ button {
 .primary-button,
 .status-grid button.active,
 .button-row button.primary {
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--violet));
   color: white;
 }
 
@@ -192,7 +192,7 @@ h3 {
 }
 
 .hero {
-  background: linear-gradient(180deg, #ffffff, #f7fbfa);
+  background: linear-gradient(180deg, #ffffff, #fbfaff);
   border-bottom: 1px solid var(--line);
 }
 
@@ -215,8 +215,8 @@ h3 {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #37c46a;
-  box-shadow: 0 0 0 4px rgba(55, 196, 106, 0.12);
+  background: #8b5cf6;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.13);
 }
 
 .receipt-grid,
@@ -291,7 +291,7 @@ h3 {
   min-height: 30px;
   border-radius: 7px;
   padding: 0 10px;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--violet));
   color: white;
   font-size: 12px;
   font-weight: 800;
@@ -327,9 +327,9 @@ h3 {
   gap: 8px;
   width: fit-content;
   padding: 7px 10px;
-  border: 1px solid rgba(55, 125, 113, 0.2);
+  border: 1px solid rgba(124, 92, 255, 0.2);
   border-radius: 999px;
-  background: rgba(231, 244, 241, 0.8);
+  background: rgba(240, 236, 255, 0.82);
   color: var(--accent);
   font-size: 13px;
   font-weight: 700;
@@ -338,7 +338,7 @@ h3 {
 .context-chip button {
   padding: 3px 7px;
   border-radius: 999px;
-  background: rgba(55, 125, 113, 0.12);
+  background: rgba(124, 92, 255, 0.12);
   color: var(--accent);
   font-size: 12px;
   font-weight: 800;
@@ -373,8 +373,8 @@ h3 {
   width: 9px;
   height: 9px;
   border-radius: 999px;
-  background: #37c46a;
-  box-shadow: 0 0 0 4px rgba(55, 196, 106, 0.12);
+  background: #8b5cf6;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.13);
 }
 
 .receipt-dot.needs-check {
@@ -406,8 +406,8 @@ h3 {
 .message.user {
   justify-self: end;
   max-width: min(620px, 72%);
-  background: var(--accent);
-  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--violet));
+  border-color: transparent;
   color: white;
 }
 
@@ -533,7 +533,7 @@ h3 {
 }
 
 .message th {
-  background: rgba(228, 241, 238, 0.72);
+  background: rgba(238, 233, 255, 0.72);
   font-weight: 800;
 }
 
@@ -548,8 +548,8 @@ h3 {
 }
 
 .chat-form.drag-active {
-  border-color: rgba(55, 125, 113, 0.42);
-  background: rgba(231, 244, 241, 0.8);
+  border-color: rgba(124, 92, 255, 0.42);
+  background: rgba(240, 236, 255, 0.82);
 }
 
 .hidden-file-input {
@@ -575,7 +575,7 @@ h3 {
   min-width: 88px;
   min-height: 48px;
   border-radius: 7px;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--violet));
   color: white;
   font-weight: 800;
 }
@@ -584,9 +584,9 @@ h3 {
   display: grid;
   gap: 10px;
   padding: 14px;
-  border: 1px solid #c9dcd8;
+  border: 1px solid rgba(124, 92, 255, 0.18);
   border-radius: 8px;
-  background: #f1faf7;
+  background: rgba(247, 244, 255, 0.86);
 }
 
 .proposal-actions {
@@ -620,6 +620,14 @@ h3 {
   margin-top: 4px;
 }
 
+.compact-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
 .action-title {
   margin-top: 4px;
 }
@@ -640,16 +648,31 @@ h3 {
 }
 
 .process-card {
-  padding: 12px 14px;
+  align-self: start;
+  padding: 10px 14px;
   border: 1px solid rgba(124, 108, 255, 0.18);
   border-radius: 8px;
-  background: rgba(250, 250, 252, 0.78);
+  background: rgba(250, 249, 255, 0.78);
 }
 
 .process-card summary {
   cursor: pointer;
   color: var(--accent-dark);
   font-weight: 800;
+  list-style-position: inside;
+}
+
+.process-card:not([open]) {
+  min-height: 0;
+}
+
+.process-card:not([open]) .process-list {
+  display: none;
+}
+
+.process-card[open] {
+  max-height: 260px;
+  overflow: auto;
 }
 
 .process-step {
@@ -722,7 +745,7 @@ h3 {
 }
 
 .project-item:hover {
-  background: rgba(55, 125, 113, 0.08);
+  background: rgba(124, 92, 255, 0.08);
 }
 
 .archive-item {
@@ -762,7 +785,7 @@ h3 {
 .file-chip {
   min-height: 30px;
   border-radius: 999px;
-  background: rgba(55, 125, 113, 0.1);
+  background: rgba(124, 92, 255, 0.1);
   color: var(--accent);
   font-size: 12px;
   font-weight: 800;
@@ -1037,7 +1060,7 @@ select {
 .notice,
 .alert-banner {
   border-bottom: 1px solid var(--line);
-  background: #eef7f4;
+  background: #f2efff;
   color: var(--accent-dark);
   font-weight: 700;
 }
@@ -1073,7 +1096,7 @@ select {
 .bar-fill {
   height: 100%;
   border-radius: inherit;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--violet));
 }
 
 @media (max-width: 560px) {

@@ -129,7 +129,7 @@ export async function proposeFromChat(db, body) {
     createdAt: new Date().toISOString()
   };
 
-  addSessionMessage(db, {
+  const assistantMessage = addSessionMessage(db, {
     role: "assistant",
     content: proposal.finalAnswer || proposal.response,
     source: proposal.parser === "deepseek" ? "deepseek" : "local_parser",
@@ -146,6 +146,7 @@ export async function proposeFromChat(db, body) {
       processTraceId: trace.id
     }
   });
+  proposal.assistantMessageId = assistantMessage.id;
   addMemoryEvent(db, {
     type: output.intent === "direct_answer" ? "chat_answer" : "chat_interaction",
     summary: proposal.memoryTitle,

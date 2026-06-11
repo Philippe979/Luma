@@ -78,6 +78,19 @@ export const capabilityRegistry = [
     adapter: "tesseract_or_external_ocr"
   },
   {
+    id: "memory.profile_prompt",
+    name: "Profile Memory Prompt",
+    description: "Inject high-confidence communication preferences without retrieving raw historical memory.",
+    category: "memory",
+    inputs: ["profile_memory"],
+    outputs: ["tone_reference"],
+    environments: ["cloud"],
+    state: "available",
+    permissions: ["memory_read"],
+    cost: "local",
+    adapter: "profile_memory"
+  },
+  {
     id: "memory.rag_search",
     name: "Scoped RAG Search",
     description: "Retrieve only allowed active memory for the current session, project, or workflow.",
@@ -89,6 +102,19 @@ export const capabilityRegistry = [
     permissions: ["memory_read"],
     cost: "low",
     adapter: "rag_adapter"
+  },
+  {
+    id: "workflow.cluster_memory",
+    name: "Workflow Cluster Memory",
+    description: "Store workflow and environment cluster skeletons for future adaptive planning.",
+    category: "workflow",
+    inputs: ["workflow_record", "environment_signal"],
+    outputs: ["workflow_cluster", "environment_cluster"],
+    environments: ["cloud"],
+    state: "planned",
+    permissions: ["memory_read", "memory_write"],
+    cost: "low",
+    adapter: "cluster_memory_skeleton"
   },
   {
     id: "workflow.record",

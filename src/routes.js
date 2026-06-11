@@ -18,6 +18,8 @@ import { latestProcessTrace } from "./process_trace.js";
 import { capabilitySummary } from "./capabilities.js";
 import { isVisible } from "./lifecycle.js";
 import { readUploadedFile } from "./file_service.js";
+import { extractMemoryArchitectureWithDeepSeek } from "./deepseek.js";
+import { applyMemoryExtraction, normalizeProfileItem, normalizeProfileMemory, normalizeWorkflowRecord, softDeleteWorkflowRecord } from "./memory_architecture.js";
 
 export function createRouter() {
   return async function router(req, res, url) {
@@ -102,6 +104,60 @@ export function createRouter() {
         deepseekThinking: body.deepseekThinking || secrets.deepseekThinking
       });
       return sendJson(res, 200, { ok: true, llm: publicLlmState(next), state: statePayload(db, next) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/memory/profile") {
+      return sendJson(res, 200, { profileMemory: normalizeProfileMemory(db.profileMemory) });
+    }
+
+    if (req.method === "PATCH" && url.pathname === "/api/memory/profile") {
+      const body = await readJson(req);
+      db.profileMemory = normalizeProfileMemory(db.profileMemory);
+      if (body.item) {
+        db.profileMemory.items.push(normalizeProfileItem(body.item));
+      }
+      if (Array.isArray(body.items)) {
+        db.profileMemory.items = body.items.map((item) => normalizeProfileItem(item));
+      }
+      if (body.rules) db.profileMemory.rules = { ...db.profileMemory.rules, ...body.rules };
+      db.profileMemory.updatedAt = new Date().toISOString();
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, profileMemory: db.profileMemory, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/memory/extract-profile") {
+      const body = await readJson(req);
+      const extraction = await extractMemoryArchitectureWithDeepSeek(db, { limit: body.limit || 80 });
+      const run = applyMemoryExtraction(db, extraction);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, run, profileMemory: db.profileMemory, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/workflow-records") {
+      return sendJson(res, 200, { workflowRecords: (db.workflowRecords || []).filter(isVisible) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/workflow-records") {
+      const record = normalizeWorkflowRecord(await readJson(req));
+      db.workflowRecords = db.workflowRecords || [];
+      db.workflowRecords.push(record);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, record, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "DELETE" && url.pathname.startsWith("/api/workflow-records/")) {
+      const id = decodeURIComponent(url.pathname.split("/").pop());
+      const record = softDeleteWorkflowRecord(db, id);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, record, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/workflow-clusters") {
+      return sendJson(res, 200, { workflowClusters: (db.workflowClusters || []).filter(isVisible) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/environment-clusters") {
+      return sendJson(res, 200, { environmentClusters: (db.environmentClusters || []).filter(isVisible) });
     }
 
     if (req.method === "POST" && url.pathname === "/api/projects") {
@@ -239,6 +295,11 @@ function statePayload(db, secrets = null) {
     brainEvents: db.brainEvents || [],
     trainingSamples: db.trainingSamples || [],
     fileMemories: (db.fileMemories || []).filter(isVisible),
+    profileMemory: normalizeProfileMemory(db.profileMemory),
+    workflowRecords: (db.workflowRecords || []).filter(isVisible),
+    workflowClusters: (db.workflowClusters || []).filter(isVisible),
+    environmentClusters: (db.environmentClusters || []).filter(isVisible),
+    memoryExtractionRuns: db.memoryExtractionRuns || [],
     memoryIndex: db.memoryIndex || {},
     usage: usageSummary(db),
     workingMemory: memoryScope.workingMemory,

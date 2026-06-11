@@ -101,3 +101,34 @@ The backend still keeps:
 - status receipt fields
 
 These remain for existing data and deployment safety. They should be retired only after workflow and environment cluster memory become stable.
+
+## V2.3.1 Profile Memory and Output UX Debugging
+
+V2.3.1 focuses on the first debugging pass after the output runtime foundation.
+
+Implemented:
+
+- compact `View Process` panel that stays collapsed until the user opens it
+- front-end typewriter animation for newly generated assistant replies
+- softer white + violet UI direction, replacing the older green/console tone
+- `Profile Memory` scaffold for communication preferences and stable user style signals
+- DeepSeek-based profile extraction endpoint that can convert older memory into compact, high-quality profile candidates
+- manual `Extract Profile` control in the Memory / RAG panel
+- reserved workflow cluster and environment cluster structures
+- capability registry entries for profile memory and future cluster memory
+
+Important architecture boundary:
+
+- Profile Memory may affect Luma's tone, pacing, formatting, and communication style.
+- Profile Memory must not be treated as raw conversation history.
+- Profile Memory injection is scoped to `global` plus the current entry route, so route-specific relationship terms do not leak into other ports.
+- Raw historical memory still requires explicit user selection or an explicit request.
+- Workflow clusters and environment clusters are reserved but should not actively retrieve context until the cluster layer is audited.
+
+This keeps daily communication preferences separate from task/workflow memory:
+
+- daily communication -> profile memory
+- task execution patterns -> workflow records/clusters
+- deployment/device/context facts -> environment clusters
+
+The goal is to restore a warmer and less mechanical Luma voice without reintroducing the old bug where unrelated memory appears inside a fresh session.
