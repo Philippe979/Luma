@@ -18,22 +18,65 @@
       </form>
     </section>
     <main class="shell">
-      <section class="panel">
-        <header class="topbar">
-          <div>
+      <section class="panel app-frame">
+        <aside class="app-sidebar">
+          <div class="sidebar-brand">
             <p class="eyebrow" data-i18n="localButler">Workflow Agent</p>
             <h1>Luma</h1>
           </div>
-          <button id="refreshButton" class="icon-button" title="Refresh" data-i18n="refresh">Refresh</button>
-        </header>
 
-        <nav class="tabs" aria-label="Luma sections">
-          <button class="tab active" data-view="today">Chat</button>
-          <button class="tab" data-view="usage" data-i18n="usage">Usage</button>
-        </nav>
+          <button id="newSessionButton" class="new-chat-button" type="button">New chat</button>
 
-        <section id="notice" class="notice hidden"></section>
-        <section id="alertBanner" class="alert-banner hidden"></section>
+          <nav class="tabs sidebar-nav" aria-label="Luma sections">
+            <button class="tab active" data-view="today">Chat</button>
+            <button class="tab" data-view="workshop">Workshop</button>
+            <button class="tab" data-view="usage">Memory</button>
+          </nav>
+
+          <section class="sidebar-block route-compat">
+            <div class="section-title">
+              <h3>Entry</h3>
+              <span id="activeRoutePill" class="pill">General</span>
+            </div>
+            <div id="entryRouteList" class="route-list"></div>
+          </section>
+
+          <section class="sidebar-block">
+            <div class="section-title">
+              <h3 data-i18n="projects">Projects</h3>
+              <span id="projectCount" class="pill">0</span>
+            </div>
+            <div id="projectList" class="project-list"></div>
+          </section>
+
+          <section class="sidebar-block">
+            <div class="section-title">
+              <h3 data-i18n="conversationArchive">History Memory</h3>
+              <span id="conversationArchiveCount" class="pill">0</span>
+            </div>
+            <div id="conversationArchiveList" class="archive-list"></div>
+          </section>
+
+          <section class="sidebar-block sidebar-usage">
+            <div class="section-title">
+              <h3 data-i18n="usage">Usage</h3>
+              <span id="todayTokenPill" class="pill">0</span>
+            </div>
+            <p id="usageMiniLine" class="muted">No token usage yet.</p>
+          </section>
+        </aside>
+
+        <section class="main-stage">
+          <header class="topbar">
+            <div>
+              <p class="eyebrow">Personal agent runtime</p>
+              <h2>Luma Workspace</h2>
+            </div>
+            <button id="refreshButton" class="icon-button" title="Refresh" data-i18n="refresh">Refresh</button>
+          </header>
+
+          <section id="notice" class="notice hidden"></section>
+          <section id="alertBanner" class="alert-banner hidden"></section>
 
         <section id="todayView" class="view active">
           <section class="ambient-bar v23-retired">
@@ -46,44 +89,9 @@
           </section>
 
           <section class="workspace-grid">
-            <aside class="side-rail">
-              <div class="section-title">
-                <h3>Entry</h3>
-                <span id="activeRoutePill" class="pill">General</span>
-              </div>
-              <div id="entryRouteList" class="route-list"></div>
-
-              <div class="section-title side-title">
-                <h3>Continue Session</h3>
-                <button id="newSessionButton" class="mini-button" type="button">New</button>
-              </div>
-              <div id="sessionList" class="session-list"></div>
-
-              <div class="section-title side-title v23-retired">
-                <h3>Today</h3>
-                <span id="reminderCount" class="pill">0</span>
-              </div>
-              <div id="reminderList" class="reminder-list v23-retired"></div>
-
-              <div class="section-title side-title">
-                <h3 data-i18n="projects">Projects</h3>
-                <span id="projectCount" class="pill">0</span>
-              </div>
-              <div id="projectList" class="project-list"></div>
-
-              <div class="section-title side-title">
-                <h3 data-i18n="usage">Usage</h3>
-                <span id="todayTokenPill" class="pill">0</span>
-              </div>
-              <p id="usageMiniLine" class="muted">No token usage yet.</p>
-
-              <div class="section-title side-title">
-                <h3 data-i18n="conversationArchive">Archive</h3>
-                <span id="conversationArchiveCount" class="pill">0</span>
-              </div>
-              <div id="conversationArchiveList" class="archive-list"></div>
-            </aside>
-
+            <div id="sessionList" class="session-list session-compat hidden"></div>
+            <div id="reminderList" class="reminder-list v23-retired"></div>
+            <span id="reminderCount" class="pill v23-retired">0</span>
             <section class="chat-card">
               <div class="greeting-block">
                 <div id="workingMemoryLine" class="context-chip hidden"></div>
@@ -120,7 +128,7 @@
               </section>
 
               <form id="chatForm" class="chat-form">
-                <input id="fileInput" class="hidden-file-input" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.html,.css,.js,.ts,.jsx,.tsx,.py,.sql,.yml,.yaml,.pdf,.docx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <input id="fileInput" class="hidden-file-input" type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.html,.css,.js,.ts,.jsx,.tsx,.py,.sql,.yml,.yaml,.pdf,.docx,.xlsx,.pptx,text/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation" />
                 <textarea id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="Ask Luma to write, plan, analyze, read files, or remember something."></textarea>
                 <button id="attachButton" type="button" aria-label="Attach file">Attach</button>
                 <button type="submit" aria-label="Send" data-i18n="send">Send</button>
@@ -141,6 +149,113 @@
               <button id="openReminderButton" class="secondary-button" data-i18n="addReminder">Add Reminder</button>
               <button id="notifyButton" class="secondary-button" data-i18n="enableAlerts">Enable Alerts</button>
             </div>
+          </section>
+        </section>
+
+        <section id="workshopView" class="view">
+          <section class="workshop-shell">
+            <header class="workshop-header">
+              <div>
+                <p class="eyebrow">Editable background</p>
+                <h2>Workshop</h2>
+                <p class="muted">A flexible canvas Luma can read, edit, highlight, and reason over.</p>
+              </div>
+              <div class="stage-selector" aria-label="Workshop stage">
+                <button class="stage-pill active" type="button">P1</button>
+                <button class="stage-pill" type="button">P2</button>
+                <button class="stage-pill" type="button">Pilot</button>
+                <button class="stage-pill" type="button">MP</button>
+              </div>
+            </header>
+
+            <section class="workshop-grid">
+              <aside class="attention-center">
+                <div>
+                  <p class="eyebrow">Attention Center</p>
+                  <h3>Needs action</h3>
+                  <p class="muted">Only items that need review, follow-up, or a decision.</p>
+                </div>
+                <details class="background-editor attention-editor">
+                  <summary>Add attention</summary>
+                  <form id="backgroundForm" class="background-form attention-form">
+                    <div class="background-form-row">
+                      <select id="backgroundTypeInput" aria-label="Background type">
+                        <option value="issue">Issue</option>
+                        <option value="meeting">Meeting</option>
+                        <option value="cost">Cost</option>
+                        <option value="reminder">Reminder</option>
+                        <option value="checklist">Checklist</option>
+                        <option value="note">Note</option>
+                      </select>
+                      <select id="backgroundAttentionInput" aria-label="Attention">
+                        <option value="normal">Normal</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                    <input id="backgroundTitleInput" placeholder="Title" autocomplete="off" />
+                    <input id="backgroundNoteInput" placeholder="Short note" autocomplete="off" />
+                    <button type="submit">Add</button>
+                  </form>
+                </details>
+                <div id="workshopAttentionList" class="attention-list"></div>
+                <div id="workshopBlocks" class="workshop-blocks attention-background-list"></div>
+              </aside>
+
+              <section class="workshop-main">
+                <section class="line-canvas">
+                  <div class="canvas-toolbar">
+                    <div>
+                      <h3>Production Line</h3>
+                      <p class="muted">The map is reserved for the line itself. Attention items live on the left.</p>
+                    </div>
+                    <button id="workshopAddBlockButton" class="mini-button" type="button">Add station</button>
+                  </div>
+                  <div id="workshopLine" class="workshop-line"></div>
+                  <details id="stationEditor" class="station-editor hidden">
+                    <summary id="stationEditorSummary">Edit selected station</summary>
+                    <form id="stationEditForm" class="station-edit-form">
+                      <div class="station-edit-head">
+                        <strong>Station details</strong>
+                        <button id="stationEditCancelButton" type="button">Clear selection</button>
+                      </div>
+                      <input id="stationTitleInput" placeholder="Station name" autocomplete="off" />
+                      <div class="station-edit-row">
+                        <select id="stationStageInput">
+                          <option value="P1">P1</option>
+                          <option value="P2">P2</option>
+                          <option value="Pilot">Pilot</option>
+                          <option value="MP">MP</option>
+                        </select>
+                        <select id="stationAttentionInput">
+                          <option value="normal">Normal</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                        </select>
+                      </div>
+                      <input id="stationSignalInput" placeholder="Primary signal" autocomplete="off" />
+                      <input id="stationNoteInput" placeholder="Note" autocomplete="off" />
+                      <textarea id="stationFieldsInput" placeholder="Editable station data, one item per line. Example: BOM: P2 sample&#10;Yield: 98.6%&#10;Risk: fixture alignment"></textarea>
+                      <button type="submit">Save station</button>
+                    </form>
+                  </details>
+                </section>
+
+              </section>
+
+              <aside class="workshop-agent">
+                <div>
+                  <p class="eyebrow">Command Center</p>
+                  <h3>Tell Luma what to do</h3>
+                  <p class="muted">Add stations, analyze yield, create summaries, highlight risk, or ask what needs attention.</p>
+                </div>
+                <div id="workshopLog" class="workshop-log"></div>
+                <form id="workshopForm" class="workshop-form">
+                  <textarea id="workshopInput" placeholder="Command Luma..."></textarea>
+                  <button type="submit">Run command</button>
+                </form>
+              </aside>
+            </section>
           </section>
         </section>
 
@@ -287,36 +402,6 @@
             </form>
           </section>
 
-          <section class="block">
-            <div class="section-title">
-              <h3 data-i18n="languageLayer">Language Layer</h3>
-              <span id="llmStatus" class="pill">local</span>
-            </div>
-            <form id="llmForm" class="stack-form">
-              <label>
-                <span data-i18n="deepseekApiKey">DeepSeek API Key</span>
-                <input id="deepseekKeyInput" type="password" data-i18n-placeholder="deepseekKeyPlaceholder" placeholder="sk-..." autocomplete="off" />
-              </label>
-              <div class="two-col">
-                <label>
-                  <span data-i18n="model">Model</span>
-                  <select id="deepseekModelInput">
-                    <option value="deepseek-v4-flash">deepseek-v4-flash</option>
-                    <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-                  </select>
-                </label>
-                <label>
-                  <span data-i18n="thinking">Thinking</span>
-                  <select id="deepseekThinkingInput">
-                    <option value="disabled" data-i18n="disabled">disabled</option>
-                    <option value="enabled" data-i18n="enabled">enabled</option>
-                  </select>
-                </label>
-              </div>
-              <button type="submit" data-i18n="saveLanguageLayer">Save Language Layer</button>
-            </form>
-          </section>
-
           <section class="block compact v23-retired">
             <div class="section-title">
               <h3 data-i18n="context">Context</h3>
@@ -402,7 +487,7 @@
 
           <section class="block">
             <div class="section-title">
-              <h3>Memory / RAG</h3>
+              <h3>Cluster Memory</h3>
               <div class="compact-actions">
                 <button id="profileExtractButton" class="mini-button" type="button">Extract Profile</button>
                 <span id="memoryIndexState" class="pill">planned</span>
@@ -410,6 +495,154 @@
             </div>
             <div id="memoryIndexList" class="usage-list"></div>
           </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3 data-i18n="languageLayer">Language Layer</h3>
+              <span id="llmStatus" class="pill">local</span>
+            </div>
+            <form id="llmForm" class="stack-form">
+              <label>
+                <span data-i18n="deepseekApiKey">DeepSeek API Key</span>
+                <input id="deepseekKeyInput" type="password" data-i18n-placeholder="deepseekKeyPlaceholder" placeholder="sk-..." autocomplete="off" />
+              </label>
+              <div class="two-col">
+                <label>
+                  <span data-i18n="model">Model</span>
+                  <select id="deepseekModelInput">
+                    <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+                    <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+                  </select>
+                </label>
+                <label>
+                  <span data-i18n="thinking">Thinking</span>
+                  <select id="deepseekThinkingInput">
+                    <option value="disabled" data-i18n="disabled">disabled</option>
+                    <option value="enabled" data-i18n="enabled">enabled</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit" data-i18n="saveLanguageLayer">Save Language Layer</button>
+            </form>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3>Model Registry</h3>
+              <span id="modelRoutingPill" class="pill">manual</span>
+            </div>
+            <form id="modelRoutingForm" class="context-grid model-routing-form">
+              <label>
+                <span>Routing mode</span>
+                <select id="modelRoutingModeInput">
+                  <option value="manual">Manual</option>
+                  <option value="compare">Compare</option>
+                  <option value="review">Review</option>
+                  <option value="auto">Auto reserved</option>
+                </select>
+              </label>
+              <label>
+                <span>Selected model</span>
+                <select id="selectedProviderInput"></select>
+              </label>
+              <label>
+                <span>Compare / review models</span>
+                <select id="comparisonProviderInput" multiple size="4"></select>
+              </label>
+              <button type="submit">Save routing</button>
+            </form>
+            <form id="providerForm" class="stack-form provider-form">
+              <div class="two-col">
+                <label>
+                  <span>Provider label</span>
+                  <input id="providerLabelInput" placeholder="e.g. Claude / GPT / Gemini" autocomplete="off" />
+                </label>
+                <label>
+                  <span>Provider ID</span>
+                  <input id="providerIdInput" placeholder="auto if empty" autocomplete="off" />
+                </label>
+              </div>
+              <div class="two-col">
+                <label>
+                  <span>Base URL</span>
+                  <input id="providerBaseUrlInput" placeholder="https://api.example.com/v1" autocomplete="off" />
+                </label>
+                <label>
+                  <span>Model</span>
+                  <input id="providerModelInput" placeholder="model-name" autocomplete="off" />
+                </label>
+              </div>
+              <label>
+                <span>API key</span>
+                <input id="providerApiKeyInput" type="password" placeholder="Stored on server only" autocomplete="off" />
+              </label>
+              <button type="submit">Add / update provider</button>
+            </form>
+            <div id="providerList" class="usage-list"></div>
+          </section>
+
+          <section class="block">
+            <div class="section-title">
+              <h3>Local File Workspace</h3>
+              <span id="workspaceStatePill" class="pill">off</span>
+            </div>
+            <form id="workspaceSettingsForm" class="stack-form">
+              <label>
+                <span>Allowed folder</span>
+                <input id="workspaceRootInput" placeholder="E:\Luma\workspace" autocomplete="off" />
+              </label>
+              <div class="check-row">
+                <label><input id="workspaceEnabledInput" type="checkbox" /> Enable local folder access</label>
+                <label><input id="workspaceConfirmInput" type="checkbox" checked /> Confirm before write</label>
+              </div>
+              <button type="submit">Save workspace</button>
+            </form>
+            <div class="button-row">
+              <button id="workspaceRefreshButton" class="secondary-button" type="button">List files</button>
+              <button id="workspaceImportWorkshopButton" class="secondary-button" type="button">Import preview to Workshop</button>
+            </div>
+            <div id="workspaceFileList" class="usage-list"></div>
+            <div id="workspacePreview" class="workspace-preview empty quiet-empty">Select a supported file to preview it here.</div>
+            <details class="workspace-editor">
+              <summary>Edit local file</summary>
+              <form id="workspaceWriteForm" class="stack-form">
+                <div class="two-col">
+                  <label>
+                    <span>File path</span>
+                    <input id="workspaceWritePathInput" placeholder="relative/path.csv" autocomplete="off" />
+                  </label>
+                  <label>
+                    <span>Operation</span>
+                    <select id="workspaceWriteOperationInput">
+                      <option value="replace">Replace text / generated document</option>
+                      <option value="append_row">CSV append row</option>
+                      <option value="update_cell">CSV / Excel update cell</option>
+                      <option value="replace_rows">Excel replace rows</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="two-col">
+                  <label>
+                    <span>Sheet / CSV column</span>
+                    <input id="workspaceWriteColumnInput" placeholder="Sheet1 or CSV column" autocomplete="off" />
+                  </label>
+                  <label>
+                    <span>Cell / row index</span>
+                    <input id="workspaceWriteCellInput" placeholder="B2 or 0" autocomplete="off" />
+                  </label>
+                </div>
+                <label>
+                  <span>Content / value / JSON rows</span>
+                  <textarea id="workspaceWriteTextInput" placeholder="For replace: full text. For CSV append: value1,value2 or JSON array. For Excel rows: [[&quot;A&quot;,&quot;B&quot;],[1,2]]."></textarea>
+                </label>
+                <div class="check-row">
+                  <label><input id="workspaceBackupInput" type="checkbox" checked /> Create backup before writing</label>
+                </div>
+                <button type="submit">Write file</button>
+              </form>
+            </details>
+          </section>
+        </section>
         </section>
       </section>
     </main>

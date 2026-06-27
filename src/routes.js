@@ -20,6 +20,9 @@ import { isVisible } from "./lifecycle.js";
 import { readUploadedFile } from "./file_service.js";
 import { extractMemoryArchitectureWithDeepSeek } from "./deepseek.js";
 import { applyMemoryExtraction, normalizeProfileItem, normalizeProfileMemory, normalizeWorkflowRecord, softDeleteWorkflowRecord } from "./memory_architecture.js";
+import { listWorkspaceFiles, readWorkspaceFile, updateWorkspaceSettings, workspaceState, writeWorkspaceFile } from "./local_workspace.js";
+import { deleteProvider, normalizeRouting, routingState, upsertProvider } from "./llm_registry.js";
+import { modelPreferenceSummary, recordModelPreference } from "./model_preferences.js";
 
 export function createRouter() {
   return async function router(req, res, url) {
@@ -104,6 +107,61 @@ export function createRouter() {
         deepseekThinking: body.deepseekThinking || secrets.deepseekThinking
       });
       return sendJson(res, 200, { ok: true, llm: publicLlmState(next), state: statePayload(db, next) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/llm/providers") {
+      return sendJson(res, 200, { registry: routingState(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/llm/providers") {
+      const body = await readJson(req);
+      const nextSecrets = await saveSecrets({ llmProviders: upsertProvider(secrets, body) });
+      return sendJson(res, 200, { ok: true, registry: routingState(db, nextSecrets), state: statePayload(db, nextSecrets) });
+    }
+
+    if (req.method === "DELETE" && url.pathname.startsWith("/api/llm/providers/")) {
+      const id = decodeURIComponent(url.pathname.split("/").pop());
+      const nextSecrets = await saveSecrets({ llmProviders: deleteProvider(secrets, id) });
+      return sendJson(res, 200, { ok: true, registry: routingState(db, nextSecrets), state: statePayload(db, nextSecrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/llm/routing") {
+      db.modelRouting = normalizeRouting(db, await readJson(req));
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, registry: routingState(db, secrets), state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/model-preferences") {
+      const record = recordModelPreference(db, await readJson(req));
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, record, modelPreferences: modelPreferenceSummary(db), state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/local-workspace") {
+      return sendJson(res, 200, { workspace: workspaceState(db) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/local-workspace/settings") {
+      const workspace = await updateWorkspaceSettings(db, await readJson(req));
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, workspace, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/local-workspace/files") {
+      const files = await listWorkspaceFiles(db, url.searchParams.get("dir") || "");
+      return sendJson(res, 200, { files, workspace: workspaceState(db) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/local-workspace/read") {
+      const file = await readWorkspaceFile(db, (await readJson(req)).path);
+      await saveDb(db);
+      return sendJson(res, 200, { ok: true, file, state: statePayload(db, secrets) });
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/local-workspace/write") {
+      const result = await writeWorkspaceFile(db, await readJson(req));
+      await saveDb(db);
+      return sendJson(res, 200, { ...result, state: statePayload(db, secrets) });
     }
 
     if (req.method === "GET" && url.pathname === "/api/memory/profile") {
@@ -278,7 +336,7 @@ function statePayload(db, secrets = null) {
     activeStatus: activeStatus(db),
     receipt: statusReceipt(db),
     statuses: db.statuses,
-    reminders: db.reminders,
+    reminders: (db.reminders || []).filter(isVisible),
     entryRoutes,
     sessions: recentSessionsForRoute(db, activeSession.routeLabel),
     activeSessionId: activeSession.id,
@@ -314,6 +372,9 @@ function statePayload(db, secrets = null) {
     llm: publicLlmState(secrets || { deepseekApiKey: "", deepseekModel: "deepseek-v4-flash", deepseekThinking: "disabled" }),
     localLlm: brainState(),
     brain: brainState(),
+    llmRegistry: routingState(db, secrets || {}),
+    modelPreferences: modelPreferenceSummary(db),
+    localWorkspace: workspaceState(db),
     optimizer: optimizerState(),
     capabilities: capabilitySummary(),
     lanUrls: clientIpList().map((ip) => `http://${ip}:${config.port}`)

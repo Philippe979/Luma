@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { generateAnswerWithDeepSeek, normalizeWithDeepSeek, parseWithDeepSeek } from "./deepseek.js";
-import { parseChatInput } from "./parser.js";
+import { parseChatInput } from "./parser_fixed.js";
 import { addMemoryEvent, emptyWorkingMemory, projectWorkingMemory } from "./memory.js";
 import { addSessionMessage } from "./conversation.js";
 import { routeProfile } from "./entry_routes.js";
@@ -9,7 +9,7 @@ import { ensureActiveSession, touchSession } from "./sessions.js";
 import { executeTool } from "./tools.js";
 import { addUsageEvent } from "./usage.js";
 import { trainWithBrain } from "./brain_service.js";
-import { buildInputPacket } from "./input_prompt.js";
+import { buildInputPacket } from "./input_prompt_fixed.js";
 import { readDb, saveDb } from "./storage.js";
 import { isVisible } from "./lifecycle.js";
 
@@ -95,14 +95,20 @@ export async function proposeFromChat(db, body) {
     routeTone: route.tone,
     projectId: session.projectId
   };
+  inputPacket.modelRouting = {
+    ...(db.modelRouting || {}),
+    ...(body.modelRouting || {})
+  };
+  inputPacket.surfaceContext = normalizeSurfaceContext(body.surfaceContext);
   addProcessStep(trace, "Input normalized");
   addSessionMessage(db, { role: "user", content: text, source: "chat", sessionId: session.id, routeLabel: route.id, projectId: session.projectId });
-  const useDirectAnswer = shouldUseDirectAnswer(text);
+  const useDirectAnswer = shouldUseDirectAnswer(text, inputPacket);
   addProcessStep(trace, `Intent routed: ${useDirectAnswer ? "direct_answer" : "memory_action"}`, "done", useDirectAnswer ? "final answer channel" : "proposal channel");
   const parsed = useDirectAnswer
     ? await answerWithFallback(text, contextDb, inputPacket, db)
     : await parseWithFallback(text, contextDb, inputPacket, db);
   const output = normalizeProposalOutput(parsed, text);
+  const modelComparison = await buildModelComparison(output, parsed, inputPacket, contextDb, text);
   addProcessStep(
     trace,
     output.intent === "direct_answer" ? "Direct answer generated" : "Memory and action proposal prepared",
@@ -116,10 +122,11 @@ export async function proposeFromChat(db, body) {
     response: output.response,
     finalAnswer: output.finalAnswer,
     assistantNotice: output.assistantNotice,
-    outputType: output.outputType,
+    outputType: modelComparison ? "comparison" : output.outputType,
     confidence: output.confidence,
     memoryTitle: output.memoryTitle,
     proposedActions: output.proposedActions,
+    modelComparison,
     workflowTrace: trace.steps,
     parser: parsed.parser || "local",
     inputPacket,
@@ -132,7 +139,7 @@ export async function proposeFromChat(db, body) {
   const assistantMessage = addSessionMessage(db, {
     role: "assistant",
     content: proposal.finalAnswer || proposal.response,
-    source: proposal.parser === "deepseek" ? "deepseek" : "local_parser",
+    source: parsed.usage?.provider || (proposal.parser === "deepseek" ? "deepseek" : "local_parser"),
     sessionId: session.id,
     routeLabel: route.id,
     projectId: session.projectId,
@@ -143,6 +150,7 @@ export async function proposeFromChat(db, body) {
       assistantNotice: proposal.assistantNotice,
       proposedActions: proposal.proposedActions,
       memoryTitle: proposal.memoryTitle,
+      modelComparison: proposal.modelComparison,
       processTraceId: trace.id
     }
   });
@@ -163,7 +171,9 @@ export async function proposeFromChat(db, body) {
       confidence: output.confidence,
       parser: proposal.parser,
       outputType: proposal.outputType,
+      modelComparison: summarizeModelComparison(proposal.modelComparison),
       inputPacket,
+      surfaceContext: inputPacket.surfaceContext,
       sessionId: session.id,
       routeLabel: route.id,
       projectId: session.projectId
@@ -181,6 +191,9 @@ export async function proposeFromChat(db, body) {
     inputTokens: estimateTokens(text),
     outputTokens: estimateTokens(proposal.finalAnswer || proposal.response)
   });
+  for (const usage of proposal.modelComparison?.usageEvents || []) {
+    addUsageEvent(db, usage);
+  }
   return proposal;
 }
 
@@ -279,17 +292,189 @@ async function answerWithFallback(text, parserDb, inputPacket, eventDb = parserD
       metadata: { provider: "deepseek", mode: "direct_answer" }
     });
   }
+  if (shouldUseDirectAnswer(text)) {
+    return {
+      input: text,
+      confidence: 0.1,
+      response: "DeepSeek is unavailable right now, so I cannot reliably generate this long-form answer in the current turn. Please check the DeepSeek API key/network and try again.",
+      finalAnswer: "DeepSeek is unavailable right now, so I cannot reliably generate this long-form answer in the current turn. Please check the DeepSeek API key/network and try again.",
+      assistantNotice: "",
+      outputType: "chat",
+      intent: "direct_answer",
+      proposedActions: [],
+      parser: "local_unavailable",
+      mode: "direct_answer"
+    };
+  }
   return { ...parseChatInput(text, parserDb), parser: "local", mode: "proposal" };
 }
 
-function shouldUseDirectAnswer(text) {
+function normalizeSurfaceContext(surfaceContext = null) {
+  if (!surfaceContext || typeof surfaceContext !== "object") return null;
+  const surface = String(surfaceContext.surface || "general").trim() || "general";
+  return {
+    surface,
+    clusterId: surfaceContext.clusterId || `${surface}.working`,
+    label: surfaceContext.label || surface,
+    activeStage: surfaceContext.activeStage || null,
+    selectedId: surfaceContext.selectedId || null,
+    retrievalPolicy: surfaceContext.retrievalPolicy || "surface_only",
+    workshop: surface === "workshop" ? summarizeWorkshopSurface(surfaceContext.workshop) : null,
+    file: surfaceContext.file || null
+  };
+}
+
+function summarizeWorkshopSurface(workshop = {}) {
+  const blocks = Array.isArray(workshop.blocks) ? workshop.blocks : [];
+  return {
+    activeStage: workshop.activeStage || null,
+    stationCount: blocks.filter((block) => block.type === "station").length,
+    attentionCount: blocks.filter((block) => block.attention === "high" || block.attention === "medium").length,
+    blocks: blocks.slice(0, 30).map((block) => ({
+      id: block.id,
+      type: block.type,
+      title: block.title,
+      stage: block.stage,
+      attention: block.attention,
+      fields: (block.fields || []).slice(0, 12),
+      notes: (block.notes || []).slice(0, 3)
+    })),
+    recentLog: (workshop.recentLog || []).slice(-8)
+  };
+}
+
+function shouldUseDirectAnswer(text, inputPacket = null) {
   const input = String(text || "");
   if (looksLikeLocalAction(input)) return false;
+  if (inputPacket?.surfaceContext?.surface === "workshop" && looksLikeWorkshopQuestion(input)) return true;
   return contentRequestPattern.test(input);
+}
+
+function looksLikeWorkshopQuestion(text) {
+  return /[?？]|why|how|analy[sz]e|reason|root cause|automation|yield|ct|uph|ng|station|line|fixture|process|equipment|工站|线体|自动化|良率|产线|设备|夹具|不良|原因|为什么|怎么/i.test(String(text || ""));
 }
 
 function looksLikeLocalAction(text) {
   return localActionPattern.test(String(text || ""));
+}
+
+async function buildModelComparison(output, parsed, inputPacket, db, text) {
+  const routing = inputPacket?.modelRouting || {};
+  if (!["compare", "review"].includes(routing.mode)) return null;
+  const usage = parsed.usage || {};
+  const providerId = usage.provider || routing.selectedProviderId || "deepseek";
+  const content = output.finalAnswer || output.response || output.assistantNotice || "";
+  const targetProviderIds = routing.mode === "review"
+    ? normalizeProviderList(routing.reviewProviderIds, providerId)
+    : normalizeProviderList(routing.compareProviderIds, providerId);
+  const responses = [
+    {
+      providerId,
+      label: providerId,
+      model: usage.model || "unknown",
+      role: routing.mode === "review" ? "draft" : "answer",
+      content,
+      latencyMs: usage.latencyMs || null,
+      tokens: usage.totalTokens || usage.inputTokens + usage.outputTokens || null,
+      cost: usage.estimatedCostUsd || usage.costUsd || 0
+    }
+  ];
+  const usageEvents = [];
+  const extraProviderIds = targetProviderIds.filter((id) => id !== providerId).slice(0, 3);
+  const extraResults = await Promise.all(extraProviderIds.map((id) => callProviderForComparison(id, text, db, inputPacket, routing.mode)));
+  for (const result of extraResults) {
+    responses.push(result.response);
+    if (result.usage) usageEvents.push(result.usage);
+  }
+  return {
+    id: crypto.randomUUID(),
+    mode: routing.mode,
+    selectedProviderId: providerId,
+    compareProviderIds: normalizeProviderList(routing.compareProviderIds, providerId),
+    reviewProviderIds: normalizeProviderList(routing.reviewProviderIds, null),
+    synthesis: content,
+    responses,
+    usageEvents,
+    status: responses.length > 1 ? "multi_provider_ready" : "single_provider_ready",
+    note: responses.length > 1
+      ? "Human preference buttons below teach Luma which model style fits this task."
+      : "Only one provider produced an answer. Add provider API keys or choose more providers to compare.",
+    createdAt: new Date().toISOString()
+  };
+}
+
+async function callProviderForComparison(providerId, text, db, inputPacket, mode) {
+  const startedAt = Date.now();
+  try {
+    const answer = await generateAnswerWithDeepSeek(text, db, {
+      ...inputPacket,
+      modelRouting: {
+        ...(inputPacket.modelRouting || {}),
+        mode: "manual",
+        selectedProviderId: providerId
+      }
+    });
+    if (!answer) {
+      return {
+        response: {
+          providerId,
+          label: providerId,
+          model: "not configured",
+          role: mode === "review" ? "reviewer" : "answer",
+          content: "This provider did not run because its API key or endpoint is not configured.",
+          error: "provider_not_configured",
+          latencyMs: Date.now() - startedAt,
+          tokens: null,
+          cost: 0
+        }
+      };
+    }
+    return {
+      response: {
+        providerId,
+        label: providerId,
+        model: answer.usage?.model || "unknown",
+        role: mode === "review" ? "reviewer" : "answer",
+        content: answer.finalAnswer || answer.response || "",
+        latencyMs: Date.now() - startedAt,
+        tokens: answer.usage?.totalTokens || null,
+        cost: answer.usage?.estimatedCostUsd || 0
+      },
+      usage: answer.usage ? { ...answer.usage, parser: "model_compare", reason: mode === "review" ? "model_review" : "model_compare" } : null
+    };
+  } catch (error) {
+    return {
+      response: {
+        providerId,
+        label: providerId,
+        model: "error",
+        role: mode === "review" ? "reviewer" : "answer",
+        content: error.message || "Provider request failed.",
+        error: "provider_request_failed",
+        latencyMs: Date.now() - startedAt,
+        tokens: null,
+        cost: 0
+      }
+    };
+  }
+}
+
+function normalizeProviderList(list, fallback) {
+  const values = Array.isArray(list) ? list : [];
+  const unique = [...new Set(values.filter(Boolean).map(String))];
+  if (fallback && !unique.includes(fallback)) unique.unshift(fallback);
+  return unique;
+}
+
+function summarizeModelComparison(comparison) {
+  if (!comparison) return null;
+  return {
+    id: comparison.id,
+    mode: comparison.mode,
+    selectedProviderId: comparison.selectedProviderId,
+    responseCount: comparison.responses?.length || 0,
+    status: comparison.status
+  };
 }
 
 function normalizeProposalOutput(parsed, fallbackText) {

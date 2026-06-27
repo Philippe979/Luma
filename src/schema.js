@@ -81,7 +81,7 @@ export const defaultDb = {
   environmentClusters: [],
   memoryExtractionRuns: [],
   memoryIndex: {
-    provider: "scoped-rag",
+    provider: "cluster-router",
     state: "planned",
     lastIndexedAt: null,
     chunkCount: 0,
@@ -90,6 +90,24 @@ export const defaultDb = {
       excludeDeleted: true,
       requireSessionOrProjectScope: true
     }
+  },
+  localWorkspace: {
+    enabled: false,
+    root: "",
+    allowedExtensions: [".csv", ".docx", ".xlsx", ".pptx"],
+    requireConfirmBeforeWrite: true,
+    operationLog: []
+  },
+  modelRouting: {
+    mode: "manual",
+    selectedProviderId: "deepseek",
+    compareProviderIds: ["deepseek"],
+    reviewProviderIds: [],
+    callLog: []
+  },
+  modelPreferences: {
+    feedbackLog: [],
+    stablePreferences: []
   },
   workingMemory: {
     activeProject: null,

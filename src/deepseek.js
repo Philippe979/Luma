@@ -1,6 +1,6 @@
 import { readSecrets } from "./secrets.js";
 import { emptyWorkingMemory, projectWorkingMemory, recentMemory } from "./memory.js";
-import { inputNormalizationSystemPrompt } from "./input_prompt.js";
+import { inputNormalizationSystemPrompt } from "./input_prompt_fixed.js";
 import { isVisible } from "./lifecycle.js";
 import { profilePromptBlock } from "./memory_architecture.js";
 
@@ -82,44 +82,83 @@ const resultStructurePattern = new RegExp(
   "m"
 );
 
+function resolveChatProvider(secrets, inputPacket = null) {
+  const selectedId = inputPacket?.modelRouting?.selectedProviderId || "deepseek";
+  const providers = Array.isArray(secrets.llmProviders) ? secrets.llmProviders : [];
+  const selected = providers.find((provider) => provider.id === selectedId);
+  if (selected) {
+    return normalizeChatProvider(selected, secrets);
+  }
+  if (selectedId !== "deepseek") return null;
+  return normalizeChatProvider({
+    id: "deepseek",
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
+    model: secrets.deepseekModel || "deepseek-v4-flash",
+    apiKey: secrets.deepseekApiKey,
+    type: "deepseek"
+  }, secrets);
+}
+
+function normalizeChatProvider(provider, secrets) {
+  const id = provider.id || "deepseek";
+  const apiKey = provider.apiKey || (id === "deepseek" ? secrets.deepseekApiKey : "");
+  return {
+    id,
+    label: provider.label || id,
+    type: provider.type || "openai_compatible",
+    baseUrl: String(provider.baseUrl || (id === "deepseek" ? "https://api.deepseek.com" : "")).replace(/\/$/, ""),
+    model: provider.model || (id === "deepseek" ? secrets.deepseekModel || "deepseek-v4-flash" : ""),
+    apiKey
+  };
+}
+
+function withProviderOptions(provider, secrets, body) {
+  const payload = { ...body };
+  if (provider.id === "deepseek" || provider.type === "deepseek") {
+    payload.thinking = { type: secrets.deepseekThinking || "disabled" };
+  }
+  return payload;
+}
+
 export async function parseWithDeepSeek(text, db, inputPacket = null) {
   const secrets = await readSecrets();
-  if (!secrets.deepseekApiKey) return null;
+  const provider = resolveChatProvider(secrets, inputPacket);
+  if (!provider?.apiKey) return null;
 
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
+  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${secrets.deepseekApiKey}`
+      Authorization: `Bearer ${provider.apiKey}`
     },
-    body: JSON.stringify({
-      model: secrets.deepseekModel || "deepseek-v4-flash",
+    body: JSON.stringify(withProviderOptions(provider, secrets, {
+      model: provider.model,
       messages: [
         { role: "system", content: systemPrompt(db, inputPacket) },
         { role: "user", content: JSON.stringify({ inputPacket, text }, null, 2) }
       ],
       response_format: { type: "json_object" },
-      thinking: { type: secrets.deepseekThinking || "disabled" },
       max_tokens: 1600
-    })
+    }))
   });
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`DeepSeek request failed: ${response.status} ${detail.slice(0, 240)}`);
+    throw new Error(`${provider.label} request failed: ${response.status} ${detail.slice(0, 240)}`);
   }
 
   const payload = await response.json();
   const content = payload.choices?.[0]?.message?.content || "{}";
   const normalized = normalizeLlmParse(JSON.parse(content));
   const repaired = shouldRepairHollowResponse(text, normalized)
-    ? await repairHollowResponse({ text, db, inputPacket, normalized, secrets })
+    ? await repairHollowResponse({ text, db, inputPacket, normalized, secrets, provider })
     : null;
   return {
     ...(repaired || normalized),
     usage: {
-      provider: "deepseek",
-      model: secrets.deepseekModel || "deepseek-v4-flash",
+      provider: provider.id,
+      model: provider.model,
       inputTokens: payload.usage?.prompt_tokens || 0,
       outputTokens: payload.usage?.completion_tokens || 0,
       totalTokens: payload.usage?.total_tokens || 0,
@@ -130,29 +169,29 @@ export async function parseWithDeepSeek(text, db, inputPacket = null) {
 
 export async function generateAnswerWithDeepSeek(text, db, inputPacket = null) {
   const secrets = await readSecrets();
-  if (!secrets.deepseekApiKey) return null;
+  const provider = resolveChatProvider(secrets, inputPacket);
+  if (!provider?.apiKey) return null;
 
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
+  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${secrets.deepseekApiKey}`
+      Authorization: `Bearer ${provider.apiKey}`
     },
-    body: JSON.stringify({
-      model: secrets.deepseekModel || "deepseek-v4-flash",
+    body: JSON.stringify(withProviderOptions(provider, secrets, {
+      model: provider.model,
       messages: [
         { role: "system", content: answerSystemPrompt(db, inputPacket) },
         { role: "user", content: JSON.stringify({ inputPacket, text, conversation: scopedConversation(db, inputPacket) }, null, 2) }
       ],
       response_format: { type: "json_object" },
-      thinking: { type: secrets.deepseekThinking || "disabled" },
-      max_tokens: 2600
-    })
+      max_tokens: 4200
+    }))
   });
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`DeepSeek answer failed: ${response.status} ${detail.slice(0, 240)}`);
+    throw new Error(`${provider.label} answer failed: ${response.status} ${detail.slice(0, 240)}`);
   }
 
   const payload = await response.json();
@@ -166,8 +205,8 @@ export async function generateAnswerWithDeepSeek(text, db, inputPacket = null) {
     finalAnswer: parsed.response,
     outputType: inferOutputType(parsed.response),
     usage: {
-      provider: "deepseek",
-      model: secrets.deepseekModel || "deepseek-v4-flash",
+      provider: provider.id,
+      model: provider.model,
       inputTokens: payload.usage?.prompt_tokens || 0,
       outputTokens: payload.usage?.completion_tokens || 0,
       totalTokens: payload.usage?.total_tokens || 0,
@@ -205,7 +244,7 @@ export async function extractMemoryArchitectureWithDeepSeek(db, { limit = 80 } =
       ],
       response_format: { type: "json_object" },
       thinking: { type: secrets.deepseekThinking || "disabled" },
-      max_tokens: 2600
+      max_tokens: 4200
     })
   });
   if (!response.ok) {
@@ -371,23 +410,23 @@ Required JSON shape:
 }`;
 }
 
-async function repairHollowResponse({ text, db, inputPacket, normalized, secrets }) {
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
+async function repairHollowResponse({ text, db, inputPacket, normalized, secrets, provider }) {
+  if (!provider?.apiKey) return null;
+  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${secrets.deepseekApiKey}`
+      Authorization: `Bearer ${provider.apiKey}`
     },
-    body: JSON.stringify({
-      model: secrets.deepseekModel || "deepseek-v4-flash",
+    body: JSON.stringify(withProviderOptions(provider, secrets, {
+      model: provider.model,
       messages: [
         { role: "system", content: repairSystemPrompt(db, inputPacket) },
         { role: "user", content: JSON.stringify({ userText: text, badResponse: normalized.response }, null, 2) }
       ],
       response_format: { type: "json_object" },
-      thinking: { type: secrets.deepseekThinking || "disabled" },
-      max_tokens: 2200
-    })
+      max_tokens: 3600
+    }))
   });
   if (!response.ok) return null;
   const payload = await response.json();

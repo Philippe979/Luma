@@ -5,7 +5,18 @@ import { config } from "./config.js";
 const defaultSecrets = {
   deepseekApiKey: "",
   deepseekModel: "deepseek-v4-flash",
-  deepseekThinking: "disabled"
+  deepseekThinking: "disabled",
+  llmProviders: [
+    {
+      id: "deepseek",
+      label: "DeepSeek",
+      type: "openai_compatible",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      enabled: false,
+      roles: ["answerer", "reviewer", "summarizer"]
+    }
+  ]
 };
 
 export async function readSecrets() {
@@ -13,7 +24,13 @@ export async function readSecrets() {
     return {
       deepseekApiKey: config.deepseekApiKey,
       deepseekModel: config.deepseekModel,
-      deepseekThinking: config.deepseekThinking
+      deepseekThinking: config.deepseekThinking,
+      llmProviders: defaultSecrets.llmProviders.map((provider) => ({
+        ...provider,
+        enabled: true,
+        model: config.deepseekModel,
+        hasApiKey: true
+      }))
     };
   }
   await mkdir(config.dataDir, { recursive: true });
@@ -33,10 +50,28 @@ export async function saveSecrets(patch) {
 }
 
 export function publicLlmState(secrets) {
+  const providers = normalizePublicProviders(secrets);
   return {
     provider: "deepseek",
     enabled: Boolean(secrets.deepseekApiKey),
     model: secrets.deepseekModel || defaultSecrets.deepseekModel,
-    thinking: secrets.deepseekThinking || defaultSecrets.deepseekThinking
+    thinking: secrets.deepseekThinking || defaultSecrets.deepseekThinking,
+    providers
   };
+}
+
+export function normalizePublicProviders(secrets) {
+  const providers = Array.isArray(secrets.llmProviders) && secrets.llmProviders.length
+    ? secrets.llmProviders
+    : defaultSecrets.llmProviders;
+  return providers.map((provider) => ({
+    id: provider.id,
+    label: provider.label || provider.id,
+    type: provider.type || "openai_compatible",
+    baseUrl: provider.baseUrl || "",
+    model: provider.model || "",
+    enabled: Boolean(provider.enabled && (provider.apiKey || provider.hasApiKey || provider.id === "deepseek" && secrets.deepseekApiKey)),
+    hasApiKey: Boolean(provider.apiKey || provider.hasApiKey || provider.id === "deepseek" && secrets.deepseekApiKey),
+    roles: Array.isArray(provider.roles) ? provider.roles : []
+  }));
 }

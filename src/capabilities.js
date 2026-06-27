@@ -91,17 +91,17 @@ export const capabilityRegistry = [
     adapter: "profile_memory"
   },
   {
-    id: "memory.rag_search",
-    name: "Scoped RAG Search",
-    description: "Retrieve only allowed active memory for the current session, project, or workflow.",
+    id: "memory.cluster_retrieve",
+    name: "Cluster Boundary Retrieve",
+    description: "Retrieve only allowed active workflow memory for the current surface, session, project, or cluster.",
     category: "memory",
     inputs: ["query", "scope"],
-    outputs: ["memory_chunks"],
+    outputs: ["workflow_memory"],
     environments: ["cloud"],
     state: "planned",
     permissions: ["memory_read"],
     cost: "low",
-    adapter: "rag_adapter"
+    adapter: "cluster_router"
   },
   {
     id: "workflow.cluster_memory",

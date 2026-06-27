@@ -8,8 +8,12 @@
     "check": "node scripts/check-syntax.js"
   },
   "dependencies": {
+    "docx": "^9.5.1",
+    "jszip": "^3.10.1",
     "mammoth": "^1.8.0",
     "pdf-parse": "^1.1.1",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "pptxgenjs": "^3.12.0",
+    "xlsx": "^0.18.5"
   }
 }

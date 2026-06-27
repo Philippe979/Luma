@@ -16,7 +16,8 @@ export const config = {
   brainEndpoint: process.env.LUMA_BRAIN_ENDPOINT || "",
   brainApiKey: process.env.LUMA_BRAIN_API_KEY || "",
   brainModel: process.env.LUMA_BRAIN_MODEL || "qwen3.5:2b",
-  brainMode: process.env.LUMA_BRAIN_MODE || "training"
+  brainMode: process.env.LUMA_BRAIN_MODE || "training",
+  localWorkspaceRoot: process.env.LUMA_LOCAL_WORKSPACE || ""
 };
 
 config.publicDir = path.join(config.root, "public");

@@ -5,6 +5,7 @@ import { defaultDb, seedStatuses } from "./schema.js";
 import { ensurePostgresSchema, postgresEnabled, readStateFromPostgres, saveStateToPostgres } from "./postgres.js";
 import { withLifecycle } from "./lifecycle.js";
 import { normalizeEnvironmentCluster, normalizeExtractionRun, normalizeProfileMemory, normalizeWorkflowCluster, normalizeWorkflowRecord } from "./memory_architecture.js";
+import { normalizeModelPreferences } from "./model_preferences.js";
 
 export async function ensureDb() {
   if (postgresEnabled()) {
@@ -66,6 +67,17 @@ function normalizeDb(db) {
     environmentClusters: (db.environmentClusters || []).map((cluster) => normalizeEnvironmentCluster(cluster, cluster.createdAt || cluster.updatedAt || new Date().toISOString())),
     memoryExtractionRuns: (db.memoryExtractionRuns || []).map((run) => normalizeExtractionRun(run, run.createdAt || run.updatedAt || new Date().toISOString())),
     memoryIndex: { ...defaultDb.memoryIndex, ...(db.memoryIndex || {}) },
+    localWorkspace: {
+      ...defaultDb.localWorkspace,
+      ...(db.localWorkspace || {}),
+      operationLog: db.localWorkspace?.operationLog || []
+    },
+    modelRouting: {
+      ...defaultDb.modelRouting,
+      ...(db.modelRouting || {}),
+      callLog: db.modelRouting?.callLog || []
+    },
+    modelPreferences: normalizeModelPreferences({ ...defaultDb.modelPreferences, ...(db.modelPreferences || {}) }),
     workingMemory: { ...defaultDb.workingMemory, ...(db.workingMemory || {}) },
     modes: db.modes || [],
     actionCards: db.actionCards?.length ? db.actionCards : defaultDb.actionCards,
@@ -73,14 +85,14 @@ function normalizeDb(db) {
     settings: { ...defaultDb.settings, ...(db.settings || {}) }
   };
 
-  normalized.reminders = normalized.reminders.map((reminder) => ({
+  normalized.reminders = normalized.reminders.map((reminder) => withLifecycle({
     kind: reminder.kind || (reminder.dueAt ? "deadline" : "status"),
     statusIds: reminder.statusIds || [],
     leadTimes: reminder.leadTimes || [],
     alerts: reminder.alerts || [],
     done: Boolean(reminder.done),
     ...reminder
-  }));
+  }, reminder.createdAt || new Date().toISOString()));
 
   if (!normalized.sessions.length) {
     const firstMessage = normalized.conversations[0];

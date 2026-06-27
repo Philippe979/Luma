@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isVisible, softDeleteRecord, withLifecycle } from "./lifecycle.js";
 
 export function createReminder(db, body) {
   const text = String(body.text || "").trim();
@@ -6,14 +7,15 @@ export function createReminder(db, body) {
 
   const kind = body.kind === "deadline" ? "deadline" : "status";
   const statusIds = body.statusIds?.length ? body.statusIds : db.activeStatusId ? [db.activeStatusId] : [];
-  const reminder = {
+  const now = new Date().toISOString();
+  const reminder = withLifecycle({
     id: crypto.randomUUID(),
     kind,
     text,
     statusIds,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
     done: false
-  };
+  }, now);
 
   if (kind === "deadline") {
     const dueAt = body.dueAt ? new Date(body.dueAt) : null;
@@ -51,20 +53,18 @@ export function updateReminder(db, id, patch) {
 }
 
 export function deleteReminder(db, id) {
-  const index = db.reminders.findIndex((item) => item.id === id);
-  if (index === -1) throw new Error("Reminder not found.");
-  const [reminder] = db.reminders.splice(index, 1);
-  return reminder;
+  const reminder = db.reminders.find((item) => item.id === id);
+  return softDeleteRecord(reminder);
 }
 
 export function activeReminders(db) {
-  return db.reminders.filter((reminder) => isReminderActive(reminder, db.activeStatusId));
+  return db.reminders.filter(isVisible).filter((reminder) => isReminderActive(reminder, db.activeStatusId));
 }
 
 export function dueAlerts(db) {
   const now = Date.now();
   const due = [];
-  for (const reminder of db.reminders) {
+  for (const reminder of db.reminders.filter(isVisible)) {
     if (reminder.kind !== "deadline" || reminder.done) continue;
     for (const alert of reminder.alerts || []) {
       if (!alert.firedAt && new Date(alert.fireAt).getTime() <= now) {
