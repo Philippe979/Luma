@@ -852,6 +852,7 @@ async function submitWorkshopToLuma(text) {
       body: JSON.stringify({
         text,
         routeLabel: "workshop",
+        persistConversation: false,
         surfaceContext: buildWorkshopSurfaceContext(),
         modelRouting: {
           mode: state.llmRegistry?.mode || "manual",
@@ -864,6 +865,9 @@ async function submitWorkshopToLuma(text) {
     workshopLog = workshopLog.filter((entry) => entry.text !== "Thinking with workshop context...");
     const answer = result.proposal?.finalAnswer || result.proposal?.response || result.proposal?.assistantNotice || "Luma did not return a workshop answer.";
     workshopLog.push({ role: "luma", text: answer });
+    if (shouldApplyWorkshopMutation(text)) {
+      handleWorkshopCommand(text, { skipUserLog: true, quiet: true });
+    }
     saveWorkshopState();
     await load(result.state);
   } catch (error) {
@@ -901,10 +905,10 @@ function handleWorkshopCommand(text, options = {}) {
   if (!value) return;
   if (!options.skipUserLog) workshopLog.push({ role: "user", text: value });
   const lower = value.toLowerCase();
-  const mentionsYield = /yield|poor|ng|defect|quality/.test(lower);
-  const mentionsHighlight = /highlight|risk|attention|important|urgent|issue/.test(lower);
-  const asksWhy = /why|analyze|analysis|reason|because|root cause/.test(lower);
-  const addStation = /add|create|new/.test(lower) && /station|workstation|line/.test(lower);
+  const mentionsYield = /yield|uph|poor|ng|defect|quality|良率|产出|不达标|缺陷|质量/.test(lower);
+  const mentionsHighlight = /highlight|risk|attention|important|urgent|issue|高亮|标记|注意|风险|重要|紧急|问题/.test(lower);
+  const asksWhy = /why|analyze|analysis|reason|because|root cause|为什么|分析|原因|根因/.test(lower);
+  const addStation = /add|create|new|创建|新增|添加/.test(lower) && /station|workstation|line|工站|产线/.test(lower);
   const target = findWorkshopBlock(value);
 
   if (addStation) {
@@ -924,7 +928,7 @@ function handleWorkshopCommand(text, options = {}) {
       ],
       notes: [value]
     });
-    workshopLog.push({ role: "luma", text: `Added ${title} as a flexible station block.` });
+    if (!options.quiet) workshopLog.push({ role: "luma", text: `Added ${title} as a flexible station block.` });
     saveWorkshopState();
     renderWorkshop();
     return;
@@ -934,17 +938,19 @@ function handleWorkshopCommand(text, options = {}) {
     target.attention = "high";
     target.notes = [...(target.notes || []), value];
     if (mentionsYield) target.fields = upsertField(target.fields, "Primary signal", "Yield issue");
-    workshopLog.push({ role: "luma", text: `Highlighted ${target.title}. I also kept your note inside the background.` });
+    if (!options.quiet) workshopLog.push({ role: "luma", text: `Highlighted ${target.title}. I also kept your note inside the background.` });
     saveWorkshopState();
     renderWorkshop();
     return;
   }
 
   if (target && asksWhy) {
-    workshopLog.push({
-      role: "luma",
-      text: `${target.title} may need checks around input material variation, fixture alignment, equipment parameter drift, operator method, and inspection criteria. I would first compare yield by time, operator, lot, and station parameter changes.`
-    });
+    if (!options.quiet) {
+      workshopLog.push({
+        role: "luma",
+        text: `${target.title} may need checks around input material variation, fixture alignment, equipment parameter drift, operator method, and inspection criteria. I would first compare yield by time, operator, lot, and station parameter changes.`
+      });
+    }
     renderWorkshop();
     return;
   }
@@ -958,9 +964,14 @@ function handleWorkshopCommand(text, options = {}) {
     fields: [["Source", "Luma command"]],
     notes: [value]
   });
-  workshopLog.push({ role: "luma", text: "Added this as a flexible background note. You can turn it into a station, issue, reminder, or checklist later." });
+  if (!options.quiet) workshopLog.push({ role: "luma", text: "Added this as a flexible background note. You can turn it into a station, issue, reminder, or checklist later." });
   saveWorkshopState();
   renderWorkshop();
+}
+
+function shouldApplyWorkshopMutation(text) {
+  const value = String(text || "").toLowerCase();
+  return /add|create|new|highlight|risk|attention|important|urgent|issue|remove|delete|update|set|uph|yield|ng|defect|创建|新增|添加|高亮|标记|删除|更新|注意|风险|问题|不达标|缺陷|质量/.test(value);
 }
 
 function findWorkshopBlock(text) {
@@ -969,8 +980,13 @@ function findWorkshopBlock(text) {
 }
 
 function stationTitleFromText(text) {
+  const named = String(text || "").match(/(?:called|named|name\s+it|叫做|叫|命名为)\s*["“]?([A-Za-z0-9_\-\u4e00-\u9fa5 ]{1,32})/i);
+  if (named?.[1]) {
+    const title = named[1].replace(/[”"。,.，、].*$/, "").trim();
+    if (title) return /station|workstation|工站/i.test(title) ? title : `${title} station`;
+  }
   const cleaned = String(text || "")
-    .replace(/add|create|new|station|workstation|line/gi, " ")
+    .replace(/add|create|new|station|workstation|line|创建|新增|添加|工站|产线/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
   return cleaned ? `${cleaned.slice(0, 32)} station` : "New station";
@@ -1583,7 +1599,7 @@ async function startFreshSession() {
   const routeLabel = activeRouteLabel || state.activeSession?.routeLabel || "general";
   const result = await api("/api/sessions/fresh", {
     method: "POST",
-    body: JSON.stringify({ routeLabel })
+    body: JSON.stringify({ routeLabel, forceNew: true })
   });
   activeRouteLabel = result.session.routeLabel || routeLabel;
   pendingProposal = null;

@@ -246,7 +246,7 @@ export function createRouter() {
 
     if (req.method === "POST" && url.pathname === "/api/sessions/fresh") {
       const body = await readJson(req);
-      const session = activateFreshSession(db, body.routeLabel || "general");
+      const session = activateFreshSession(db, body.routeLabel || "general", { forceNew: Boolean(body.forceNew) });
       session.projectId = null;
       clearWorkingMemory(db);
       await saveDb(db);

@@ -45,19 +45,21 @@ export function createSession(db, { id = crypto.randomUUID(), title = "", routeL
   return session;
 }
 
-export function activateFreshSession(db, routeLabel = "general") {
+export function activateFreshSession(db, routeLabel = "general", options = {}) {
   const normalizedRoute = normalizeRouteLabel(routeLabel);
-  const reusable = (db.sessions || []).find((session) => (
-    session.state !== "archived" &&
-    isVisible(session) &&
-    session.routeLabel === normalizedRoute &&
-    sessionMessageCount(db, session.id) === 0
-  ));
-  if (reusable) {
-    db.activeSessionId = reusable.id;
-    reusable.updatedAt = new Date().toISOString();
-    reusable.messageCount = 0;
-    return reusable;
+  if (!options.forceNew) {
+    const reusable = (db.sessions || []).find((session) => (
+      session.state !== "archived" &&
+      isVisible(session) &&
+      session.routeLabel === normalizedRoute &&
+      sessionMessageCount(db, session.id) === 0
+    ));
+    if (reusable) {
+      db.activeSessionId = reusable.id;
+      reusable.updatedAt = new Date().toISOString();
+      reusable.messageCount = 0;
+      return reusable;
+    }
   }
 
   return createSession(db, {

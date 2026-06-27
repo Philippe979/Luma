@@ -75,6 +75,8 @@ export async function proposeFromChat(db, body) {
   if (text.length > 12000) {
     throw new Error("This message is too long for one Luma turn. Please split it into smaller parts.");
   }
+  const surfaceContext = normalizeSurfaceContext(body.surfaceContext);
+  const shouldPersistConversation = body.persistConversation !== false && surfaceContext?.surface !== "workshop";
 
   const session = ensureActiveSession(db, {
     sessionId: body.sessionId,
@@ -99,9 +101,11 @@ export async function proposeFromChat(db, body) {
     ...(db.modelRouting || {}),
     ...(body.modelRouting || {})
   };
-  inputPacket.surfaceContext = normalizeSurfaceContext(body.surfaceContext);
+  inputPacket.surfaceContext = surfaceContext;
   addProcessStep(trace, "Input normalized");
-  addSessionMessage(db, { role: "user", content: text, source: "chat", sessionId: session.id, routeLabel: route.id, projectId: session.projectId });
+  if (shouldPersistConversation) {
+    addSessionMessage(db, { role: "user", content: text, source: "chat", sessionId: session.id, routeLabel: route.id, projectId: session.projectId });
+  }
   const useDirectAnswer = shouldUseDirectAnswer(text, inputPacket);
   addProcessStep(trace, `Intent routed: ${useDirectAnswer ? "direct_answer" : "memory_action"}`, "done", useDirectAnswer ? "final answer channel" : "proposal channel");
   const parsed = useDirectAnswer
@@ -136,50 +140,52 @@ export async function proposeFromChat(db, body) {
     createdAt: new Date().toISOString()
   };
 
-  const assistantMessage = addSessionMessage(db, {
-    role: "assistant",
-    content: proposal.finalAnswer || proposal.response,
-    source: parsed.usage?.provider || (proposal.parser === "deepseek" ? "deepseek" : "local_parser"),
-    sessionId: session.id,
-    routeLabel: route.id,
-    projectId: session.projectId,
-    intent: proposal.intent,
-    outputType: proposal.outputType,
-    metadata: {
-      finalAnswer: proposal.finalAnswer,
-      assistantNotice: proposal.assistantNotice,
-      proposedActions: proposal.proposedActions,
-      memoryTitle: proposal.memoryTitle,
-      modelComparison: proposal.modelComparison,
-      processTraceId: trace.id
-    }
-  });
-  proposal.assistantMessageId = assistantMessage.id;
-  addMemoryEvent(db, {
-    type: output.intent === "direct_answer" ? "chat_answer" : "chat_interaction",
-    summary: proposal.memoryTitle,
-    source: "chat",
-    userText: text,
-    actions: output.proposedActions,
-    metadata: {
-      proposalId: proposal.id,
-      title: proposal.memoryTitle,
-      intent: proposal.intent,
-      finalAnswer: proposal.finalAnswer,
-      assistantNotice: proposal.assistantNotice,
-      response: proposal.response,
-      confidence: output.confidence,
-      parser: proposal.parser,
-      outputType: proposal.outputType,
-      modelComparison: summarizeModelComparison(proposal.modelComparison),
-      inputPacket,
-      surfaceContext: inputPacket.surfaceContext,
+  if (shouldPersistConversation) {
+    const assistantMessage = addSessionMessage(db, {
+      role: "assistant",
+      content: proposal.finalAnswer || proposal.response,
+      source: parsed.usage?.provider || (proposal.parser === "deepseek" ? "deepseek" : "local_parser"),
       sessionId: session.id,
       routeLabel: route.id,
-      projectId: session.projectId
-    }
-  });
-  touchSession(db, session.id, { titleHint: text, routeLabel: route.id, projectId: session.projectId });
+      projectId: session.projectId,
+      intent: proposal.intent,
+      outputType: proposal.outputType,
+      metadata: {
+        finalAnswer: proposal.finalAnswer,
+        assistantNotice: proposal.assistantNotice,
+        proposedActions: proposal.proposedActions,
+        memoryTitle: proposal.memoryTitle,
+        modelComparison: proposal.modelComparison,
+        processTraceId: trace.id
+      }
+    });
+    proposal.assistantMessageId = assistantMessage.id;
+    addMemoryEvent(db, {
+      type: output.intent === "direct_answer" ? "chat_answer" : "chat_interaction",
+      summary: proposal.memoryTitle,
+      source: "chat",
+      userText: text,
+      actions: output.proposedActions,
+      metadata: {
+        proposalId: proposal.id,
+        title: proposal.memoryTitle,
+        intent: proposal.intent,
+        finalAnswer: proposal.finalAnswer,
+        assistantNotice: proposal.assistantNotice,
+        response: proposal.response,
+        confidence: output.confidence,
+        parser: proposal.parser,
+        outputType: proposal.outputType,
+        modelComparison: summarizeModelComparison(proposal.modelComparison),
+        inputPacket,
+        surfaceContext: inputPacket.surfaceContext,
+        sessionId: session.id,
+        routeLabel: route.id,
+        projectId: session.projectId
+      }
+    });
+    touchSession(db, session.id, { titleHint: text, routeLabel: route.id, projectId: session.projectId });
+  }
   addProcessStep(trace, "Response generated");
   finishProcessTrace(trace);
   if (inputPacket.normalizerUsage) addUsageEvent(db, { ...inputPacket.normalizerUsage, parser: "input_processor" });
